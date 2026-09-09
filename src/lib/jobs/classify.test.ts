@@ -137,21 +137,22 @@ describe("classifyStudentRole", () => {
     it("should NOT match 'intern' inside 'internal'", () => {
       const result = classifyStudentRole("Internal Auditor");
       expect(result.verdict).not.toBe("keep");
-      // It's ambiguous because it doesn't match any keywords
-      expect(result.verdict).toBe("ambiguous");
+      // No keywords match, so verdict is now reject (not ambiguous)
+      expect(result.verdict).toBe("reject");
     });
 
     it("should NOT match 'principal' inside 'principle'", () => {
       const result = classifyStudentRole("Principle Engineer");
-      expect(result.verdict).not.toBe("reject");
-      // It's ambiguous because it doesn't match any reject keywords
-      expect(result.verdict).toBe("ambiguous");
+      // "principle" ≠ "principal", and no other keywords match
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("no student or early-career signal");
     });
 
     it("should NOT match 'manager' inside 'management'", () => {
       const result = classifyStudentRole("Project Management Specialist");
-      expect(result.verdict).not.toBe("reject");
-      expect(result.verdict).toBe("ambiguous");
+      // "management" ≠ "manager", but "specialist" is a reject term
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("specialist");
     });
 
     it("should match 'manager' as a separate word", () => {
@@ -162,14 +163,45 @@ describe("classifyStudentRole", () => {
 
     it("should match 'staff' as a separate word but not 'understaffed'", () => {
       const result = classifyStudentRole("Understaffed Team Member");
-      expect(result.verdict).not.toBe("reject");
-      expect(result.verdict).toBe("ambiguous");
+      // "understaffed" ≠ "staff" (word boundary check), no other keywords match
+      expect(result.verdict).toBe("reject");
     });
 
     it("should match 'staff' when used as a standalone word", () => {
       const result = classifyStudentRole("Staff Software Engineer");
       expect(result.verdict).toBe("reject");
       expect(result.reason).toContain("staff");
+    });
+
+    it("should NOT match 'lead' inside 'leadership'", () => {
+      const result = classifyStudentRole("Leadership Development Program");
+      // "program" is an early-career signal, so this should be ambiguous
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("program");
+    });
+
+    it("should NOT match 'lead' inside 'Team Lead Generation' (lead marketing term)", () => {
+      const result = classifyStudentRole("Team Lead Generation Expert");
+      // No keywords match, so verdict is reject
+      expect(result.verdict).toBe("reject");
+    });
+
+    it("should match 'lead' as a separate word (individual contributor level)", () => {
+      const result = classifyStudentRole("Engineering Lead");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("lead");
+    });
+
+    it("should NOT match roman numeral II inside other tokens", () => {
+      const result = classifyStudentRole("Division II Athletics Coordinator");
+      // No keywords match, so verdict is reject
+      expect(result.verdict).toBe("reject");
+    });
+
+    it("should match roman numeral II as a standalone word", () => {
+      const result = classifyStudentRole("Software Engineer II");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("ii");
     });
   });
 
@@ -200,10 +232,16 @@ describe("classifyStudentRole", () => {
   });
 
   describe("no matches (unrecognized titles)", () => {
-    it("should return ambiguous for titles with no matching keywords", () => {
+    it("should return reject for titles with no matching keywords", () => {
       const result = classifyStudentRole("Software Engineer");
-      expect(result.verdict).toBe("ambiguous");
-      expect(result.reason).toContain("does not match known");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("no student or early-career signal");
+    });
+
+    it("should return reject for 'Firmware Engineer, Robotics' (real-world example)", () => {
+      const result = classifyStudentRole("Firmware Engineer, Robotics");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("no student or early-career signal");
     });
 
     it("should return reject for 'Product Manager' (contains manager)", () => {
@@ -212,26 +250,247 @@ describe("classifyStudentRole", () => {
       expect(result.reason).toContain("manager");
     });
 
-    it("should return ambiguous for 'Data Analyst'", () => {
-      const result = classifyStudentRole("Data Analyst");
-      expect(result.verdict).toBe("ambiguous");
-      expect(result.reason).toContain("does not match known");
-    });
-
-    it("should return ambiguous for 'Associate' (rotational program title)", () => {
+    it("should return ambiguous for 'Associate' (early-career signal)", () => {
       const result = classifyStudentRole("Associate");
       expect(result.verdict).toBe("ambiguous");
-      expect(result.reason).toContain("does not match known");
+      expect(result.reason).toContain("early-career signal");
+      expect(result.reason).toContain("associate");
     });
 
-    it("should return ambiguous for 'Analyst' (generic)", () => {
+    it("should return ambiguous for 'Analyst' (early-career signal)", () => {
       const result = classifyStudentRole("Analyst");
       expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("early-career signal");
+      expect(result.reason).toContain("analyst");
     });
 
-    it("should return ambiguous for empty/whitespace strings", () => {
-      const result = classifyStudentRole("   ");
+    it("should return ambiguous for 'Data Analyst' (early-career signal)", () => {
+      const result = classifyStudentRole("Data Analyst");
       expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("analyst");
+    });
+
+    it("should return reject for empty/whitespace strings", () => {
+      const result = classifyStudentRole("   ");
+      expect(result.verdict).toBe("reject");
+    });
+  });
+
+  describe("new reject terms (seniority signals)", () => {
+    it("should reject 'Engineering Lead'", () => {
+      const result = classifyStudentRole("Engineering Lead");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("lead");
+    });
+
+    it("should reject 'Head of Product'", () => {
+      const result = classifyStudentRole("Head of Product");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("head");
+    });
+
+    it("should reject 'Solutions Architect'", () => {
+      const result = classifyStudentRole("Solutions Architect");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("architect");
+    });
+
+    it("should reject 'Security Specialist'", () => {
+      const result = classifyStudentRole("Security Specialist");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("specialist");
+    });
+
+    it("should reject 'Executive Assistant'", () => {
+      const result = classifyStudentRole("Executive Assistant");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("executive");
+    });
+
+    it("should reject 'General Counsel'", () => {
+      const result = classifyStudentRole("General Counsel");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("counsel");
+    });
+
+    it("should reject 'Consulting Partner'", () => {
+      const result = classifyStudentRole("Consulting Partner");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("partner");
+    });
+
+    it("should reject 'Senior Consultant'", () => {
+      const result = classifyStudentRole("Senior Consultant");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("consultant");
+    });
+
+    it("should reject 'Warehouse Supervisor'", () => {
+      const result = classifyStudentRole("Warehouse Supervisor");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("supervisor");
+    });
+
+    it("should reject 'Financial Advisor'", () => {
+      const result = classifyStudentRole("Financial Advisor");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("advisor");
+    });
+
+    it("should reject 'Chief Technology Officer'", () => {
+      const result = classifyStudentRole("Chief Technology Officer");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("chief");
+    });
+
+    it("should reject 'Chief of Staff'", () => {
+      const result = classifyStudentRole("Chief of Staff");
+      expect(result.verdict).toBe("reject");
+    });
+
+    it("should reject 'Compliance Officer'", () => {
+      const result = classifyStudentRole("Compliance Officer");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("officer");
+    });
+
+    it("should reject 'Chief Executive Officer'", () => {
+      const result = classifyStudentRole("Chief Executive Officer");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("chief");
+    });
+
+    it("should reject 'President, Americas'", () => {
+      const result = classifyStudentRole("President, Americas");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("president");
+    });
+
+    it("should reject 'Vice President of Sales'", () => {
+      const result = classifyStudentRole("Vice President of Sales");
+      expect(result.verdict).toBe("reject");
+      // "president" is the matching term in "Vice President"
+      expect(result.reason).toContain("president");
+    });
+
+    it("should reject 'Sr. Software Engineer' (with period)", () => {
+      const result = classifyStudentRole("Sr. Software Engineer");
+      expect(result.verdict).toBe("reject");
+      // "sr" (without period) matches "Sr" in "Sr. Engineer" due to word boundaries
+      expect(result.reason).toContain("sr");
+    });
+
+    it("should reject 'Software Engineer III' (roman numeral)", () => {
+      const result = classifyStudentRole("Software Engineer III");
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("iii");
+    });
+
+    it("should reject 'Senior Engineer IV'", () => {
+      const result = classifyStudentRole("Senior Engineer IV");
+      expect(result.verdict).toBe("reject");
+      // Could match "senior" or "iv"
+      expect(result.verdict).toBe("reject");
+    });
+  });
+
+  describe("early-career signals (ambiguous)", () => {
+    it("should return ambiguous for 'Campus Recruiter'", () => {
+      const result = classifyStudentRole("Campus Recruiter");
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("campus");
+    });
+
+    it("should return reject for 'University Relations Manager'", () => {
+      const result = classifyStudentRole("University Relations Manager");
+      // "university" is early-career signal, "manager" is reject — reject wins
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("manager");
+    });
+
+    it("should return ambiguous for 'Entry Level Software Engineer'", () => {
+      const result = classifyStudentRole("Entry Level Software Engineer");
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("entry level");
+    });
+
+    it("should return ambiguous for 'Entry-Level Analyst'", () => {
+      const result = classifyStudentRole("Entry-Level Analyst");
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("entry-level");
+    });
+
+    it("should return ambiguous for 'Rotational Program'", () => {
+      const result = classifyStudentRole("Rotational Program");
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("rotational");
+    });
+
+    it("should return ambiguous for 'Rotation Program Engineer'", () => {
+      const result = classifyStudentRole("Rotation Program Engineer");
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("rotation");
+    });
+
+    it("should return ambiguous for 'Trainee'", () => {
+      const result = classifyStudentRole("Trainee");
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("trainee");
+    });
+
+    it("should return ambiguous for 'Junior Software Engineer'", () => {
+      const result = classifyStudentRole("Junior Software Engineer");
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("junior");
+    });
+
+    it("should return ambiguous for 'Jr. Developer'", () => {
+      const result = classifyStudentRole("Jr. Developer");
+      expect(result.verdict).toBe("ambiguous");
+      // "jr" (from "Jr.") is an early-career signal
+      expect(result.reason).toContain("jr");
+    });
+
+    it("should return ambiguous for 'New College Graduate'", () => {
+      const result = classifyStudentRole("New College Graduate");
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("new college");
+    });
+
+    it("should return ambiguous for 'College Grad Track'", () => {
+      const result = classifyStudentRole("College Grad Track");
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("college grad");
+    });
+
+    it("should return ambiguous for 'Medical Residency'", () => {
+      const result = classifyStudentRole("Medical Residency");
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("residency");
+    });
+
+    it("should return ambiguous for 'Research Fellowship'", () => {
+      const result = classifyStudentRole("Research Fellowship");
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("fellowship");
+    });
+
+    it("should return ambiguous for 'Early Career Program'", () => {
+      const result = classifyStudentRole("Early Career Program");
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("early career");
+    });
+
+    it("should return ambiguous for 'Early-Career Scientist'", () => {
+      const result = classifyStudentRole("Early-Career Scientist");
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("early-career");
+    });
+
+    it("should return ambiguous for 'Fellow'", () => {
+      const result = classifyStudentRole("Fellow");
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("fellow");
     });
   });
 

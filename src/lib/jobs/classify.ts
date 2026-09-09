@@ -53,6 +53,17 @@ const KEEP_TERMS = [
  * Matches whole words only (word-boundary matching).
  * These roles are typically not suitable for students or new graduates.
  * See spec section 9: Reject.
+ *
+ * Seniority signals observed in real internship data:
+ * - lead, head, architect, specialist: suggest mid-to-senior individual contributor
+ * - executive, chief, president: company leadership
+ * - counsel, partner, consultant: advisory/consulting roles
+ * - advisor, officer: organizational roles
+ * - supervisor: management
+ * - II, III, IV: seniority roman numerals (as standalone words)
+ *
+ * Note: "sr" (without period) matches "Sr" in "Sr. Software Engineer" due to
+ * case-insensitive word boundary matching.
  */
 const REJECT_TERMS = [
   "senior",
@@ -61,6 +72,58 @@ const REJECT_TERMS = [
   "manager",
   "director",
   "experienced hire",
+  "lead",         // Individual contributor + leader level
+  "head",         // Department/team head
+  "architect",    // Senior design role
+  "specialist",   // Deep expertise signal
+  "executive",    // Executive level
+  "counsel",      // Legal/advisory counsel
+  "partner",      // Partner-level role
+  "consultant",   // Consulting role
+  "supervisor",   // Supervisory role
+  "advisor",      // Advisory role
+  "officer",      // C-suite and other officers
+  "chief",        // Chief-level roles (CTO, CIO, etc.)
+  "president",    // President-level
+  "sr",           // Senior abbreviation (matches "Sr" in "Sr. Engineer")
+  "ii",           // Roman numeral II
+  "iii",          // Roman numeral III
+  "iv",           // Roman numeral IV
+];
+
+/**
+ * Job title terms that suggest a student or entry-level role WITHOUT an
+ * explicit intern keyword. These titles are genuinely ambiguous — they might
+ * be student roles in a rotational program or entry-level hiring, or they
+ * might be mid-career. Worth escalating to AI for a closer look.
+ * See spec section 9: Early-Career Signals.
+ *
+ * Note: "junior" and "jr" are both included because they can appear in titles
+ * as "Junior Software Engineer" (whole word) or "Jr." (abbreviation). Word
+ * boundary matching will catch "junior" but "jr." with the period is trickier
+ * — we include "jr" which matches "Jr" in "Jr. Engineer" due to case-insensitive
+ * word boundary matching.
+ */
+const EARLY_CAREER_SIGNALS = [
+  "campus",
+  "university",
+  "entry level",
+  "entry-level",
+  "rotational",
+  "rotation",
+  "program",
+  "trainee",
+  "junior",
+  "jr",           // Matches "Jr" in "Jr. Developer"
+  "new college",
+  "college grad",
+  "residency",
+  "fellowship",
+  "early career",
+  "early-career",
+  "associate",
+  "analyst",
+  "fellow",
 ];
 
 /**
@@ -99,13 +162,34 @@ function hasTermWithBoundary(text: string, terms: string[]): boolean {
  * - Student/internship roles (KEEP)
  * - Senior/experienced roles (REJECT)
  * - Both (AMBIGUOUS — let AI decide)
- * - Neither (AMBIGUOUS — don't silently drop it)
+ * - Early-career signals (AMBIGUOUS — worth an AI call)
+ * - Nothing (REJECT — no student signal detected)
  *
- * Why ambiguous for unmatched titles:
- * Some legitimate student roles have non-obvious titles like "Associate" or
- * "Technical Program Manager" (rotational program). Returning "reject" would
- * silently lose these jobs forever. Instead, we mark them "ambiguous" so the
- * AI can make the final call.
+ * Logic (in precedence order):
+ *
+ * a. keep-list AND reject-list both match
+ *    → ambiguous (e.g., "Senior Intern" is contradictory)
+ *
+ * b. keep-list matches only
+ *    → keep (explicit student/internship signal)
+ *
+ * c. reject-list matches only
+ *    → reject (title shows seniority/experience)
+ *
+ * d. no keep/reject, but early-career signal matches
+ *    → ambiguous (might be student role in rotational/entry-level program)
+ *
+ * e. nothing matches at all
+ *    → reject (no student signal present)
+ *
+ * Why the default changed from ambiguous to reject:
+ * Employers label internships explicitly — they're competing for student
+ * talent and must advertise as such. A title with zero student signals is
+ * strong evidence of "not a student role," not genuine uncertainty.
+ *
+ * This change is safe because the discovery system stores EVERY job
+ * regardless of classifier verdict, so a wrongly-rejected title stays in
+ * the database and can be re-classified later with an improved classifier.
  *
  * @param title - Job title string
  * @returns Classification result with verdict and reasoning
@@ -113,8 +197,9 @@ function hasTermWithBoundary(text: string, terms: string[]): boolean {
 export function classifyStudentRole(title: string): ClassificationResult {
   const matchesKeep = hasTermWithBoundary(title, KEEP_TERMS);
   const matchesReject = hasTermWithBoundary(title, REJECT_TERMS);
+  const matchesEarlyCareer = hasTermWithBoundary(title, EARLY_CAREER_SIGNALS);
 
-  // Both lists match → ambiguous (e.g., "Senior Intern" is contradictory)
+  // Rule (a): Both keep and reject match → ambiguous
   if (matchesKeep && matchesReject) {
     return {
       verdict: "ambiguous",
@@ -122,7 +207,7 @@ export function classifyStudentRole(title: string): ClassificationResult {
     };
   }
 
-  // Only keep-list matches → keep
+  // Rule (b): Keep-list matches only → keep
   if (matchesKeep) {
     return {
       verdict: "keep",
@@ -130,7 +215,7 @@ export function classifyStudentRole(title: string): ClassificationResult {
     };
   }
 
-  // Only reject-list matches → reject
+  // Rule (c): Reject-list matches only → reject
   if (matchesReject) {
     return {
       verdict: "reject",
@@ -138,9 +223,19 @@ export function classifyStudentRole(title: string): ClassificationResult {
     };
   }
 
-  // No matches at all → ambiguous (don't silently discard)
+  // Rule (d): Early-career signal matches → ambiguous (narrow band worth AI call)
+  if (matchesEarlyCareer) {
+    return {
+      verdict: "ambiguous",
+      reason: `Title contains early-career signal(s): ${EARLY_CAREER_SIGNALS.filter((t) => new RegExp(`\\b${t}\\b`, "i").test(title)).join(", ")}. Needs AI review to determine if this is a student-appropriate role.`,
+    };
+  }
+
+  // Rule (e): Nothing matches → reject (no student signal detected)
+  // This is safe because all discovered jobs are stored regardless, allowing
+  // re-classification later if the classifier improves.
   return {
-    verdict: "ambiguous",
-    reason: `Title does not match known student or senior keywords. Needs AI review to determine if this is a student-appropriate role.`,
+    verdict: "reject",
+    reason: `Title shows no student or early-career signal. Not matching any internship, entry-level, or student-focused keywords suggests this is a general professional role not targeted at students.`,
   };
 }
