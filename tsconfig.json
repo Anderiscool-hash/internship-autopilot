@@ -1,0 +1,29 @@
+{
+  // TypeScript settings for the whole project.
+  // "strict" is on deliberately: this app makes real-world decisions (is the
+  // user eligible? should we auto-submit?) so we want the compiler catching
+  // missing/undefined values rather than discovering them at 2am mid-apply.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "ES2022"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "incremental": true,
+    "jsx": "preserve",
+    "plugins": [{ "name": "next" }],
+    // "@/..." is shorthand for "src/..." so imports don't turn into ../../../
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}

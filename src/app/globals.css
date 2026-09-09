@@ -1,0 +1,54 @@
+/* Global styles.
+   Minimal on purpose — a real design system comes later. This just makes the
+   placeholder dashboard readable instead of raw unstyled HTML. */
+
+:root {
+  --bg: #ffffff;
+  --fg: #16181d;
+  --muted: #5c6370;
+  --accent: #2f6feb;
+}
+
+/* Respect the reader's system dark-mode setting. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1115;
+    --fg: #e8eaed;
+    --muted: #9aa1ac;
+    --accent: #6ea8ff;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.6;
+}
+
+.page {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 4rem 1.5rem;
+}
+
+h1 {
+  margin: 0 0 0.5rem;
+  font-size: 2rem;
+  letter-spacing: -0.02em;
+}
+
+.lede {
+  color: var(--muted);
+  margin-top: 0;
+}
+
+h2 {
+  margin-top: 2.5rem;
+  font-size: 1.125rem;
+}

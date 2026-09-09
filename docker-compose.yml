@@ -1,0 +1,52 @@
+# Local development infrastructure.
+#
+# The spec (section 30) calls for PostgreSQL as the database and Redis as the
+# queue backend. Rather than installing either onto Windows directly, we run
+# both in Docker so the local setup matches what will later run on AWS
+# (RDS for Postgres, ElastiCache for Redis — spec sections 33 and 37).
+#
+# Start it with:   npm run db:up
+# Stop it with:    npm run db:down
+# Data survives restarts because it lives in the named volumes at the bottom.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: autopilot-postgres
+    restart: unless-stopped
+    environment:
+      # These are LOCAL DEV credentials only. Production credentials come from
+      # AWS Secrets Manager / environment variables, never from this file.
+      POSTGRES_USER: autopilot
+      POSTGRES_PASSWORD: autopilot_local_dev
+      POSTGRES_DB: autopilot
+    ports:
+      # host:container — 5432 on your machine maps to Postgres inside the container
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # Don't report "ready" until Postgres can actually accept connections,
+      # otherwise migrations run against a database that isn't listening yet.
+      test: ["CMD-SHELL", "pg_isready -U autopilot -d autopilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: autopilot-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:
