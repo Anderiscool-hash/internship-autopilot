@@ -28,6 +28,40 @@ discover → normalize → filter → eligibility → fit score → tailor docs
 | Files              | Local in dev, S3 in prod      |
 | Deployment         | AWS (EC2 → RDS/S3 → ECS)      |
 
+## Running the database locally
+
+Two options. **This machine uses option B.**
+
+**A. Docker** (what `docker-compose.yml` is for — closest to the AWS target,
+and gives you Redis in the same command):
+
+```bash
+npm run db:up          # starts Postgres 16 + Redis 7
+```
+
+**B. Native PostgreSQL** (used here, because only the Docker CLI was
+installed — no engine). Installed with
+`winget install PostgreSQL.PostgreSQL.17`, then:
+
+```sql
+CREATE ROLE autopilot WITH LOGIN PASSWORD 'autopilot_local_dev' CREATEDB;
+CREATE DATABASE autopilot OWNER autopilot;
+```
+
+Those credentials deliberately match the ones in `docker-compose.yml`, so the
+same `DATABASE_URL` works either way and switching to Docker later needs no
+config change. Redis is not yet installed — it isn't needed until the
+BullMQ scanner in Phase 2.
+
+Then, for either option:
+
+```bash
+cp .env.example .env   # then fill in values
+npm run db:migrate     # apply migrations
+npm run db:seed        # load the company registry
+npm run db:studio      # browse the data in a GUI
+```
+
 ## Status
 
 **Phase 0 — repo scaffold.** Nothing is built yet. The spec defines 9 phases;
