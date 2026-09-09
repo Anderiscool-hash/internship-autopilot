@@ -1,0 +1,37 @@
+# ---- Secrets ----------------------------------------------------------
+# Never commit real credentials. Keep them in .env (ignored) and document
+# the required variable NAMES in .env.example (committed).
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# ---- Python -----------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# ---- Node / JavaScript ------------------------------------------------
+node_modules/
+dist/
+build/
+.next/
+*.log
+npm-debug.log*
+
+# ---- Editors & OS -----------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Local data / scratch --------------------------------------------
+data/
+tmp/
+*.sqlite3
