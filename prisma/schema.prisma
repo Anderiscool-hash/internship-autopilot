@@ -1,0 +1,707 @@
+// ============================================================================
+// Internship Autopilot — Database Schema (Phase 1: Foundation)
+//
+// This file is the single source of truth for the app's data model. It maps
+// directly onto docs/internship_autopilot_plan.md. Every model below is
+// annotated with the spec section it comes from, in plain language, because
+// this is meant to be readable even if you don't write TypeScript day to day.
+//
+// Nothing in here talks to Greenhouse/Lever/etc, scores jobs, or fills out
+// forms — this is Phase 1 only: "give the rest of the system somewhere
+// honest to store facts." Discovery (Phase 2), matching (Phase 3), resumes
+// (Phase 4), and auto-apply (Phase 5/6) all build on top of these tables
+// later; we are not building those behaviors yet.
+// ============================================================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ----------------------------------------------------------------------------
+// ENUMS
+// ----------------------------------------------------------------------------
+
+/// The ATS ("Applicant Tracking System") platforms the scanner and the
+/// Playwright application workers know how to talk to. Spec §4 lists these
+/// exact 10 as the initial target set. `CUSTOM` covers any company career
+/// page that isn't running a recognizable off-the-shelf ATS.
+enum AtsType {
+  GREENHOUSE
+  LEVER
+  ASHBY
+  WORKDAY
+  SMARTRECRUITERS
+  ICIMS
+  JOBVITE
+  ORACLE
+  SAP_SUCCESSFACTORS
+  CUSTOM
+}
+
+/// The candidate's own stated remote-work preference (spec §2 "Remote
+/// preference"). `ANY` means they don't care either way — kept distinct from
+/// a job's `RemoteType.UNKNOWN` below, which means the posting didn't say.
+enum RemotePreference {
+  ON_SITE
+  REMOTE
+  HYBRID
+  ANY
+}
+
+/// What a specific job posting says about remote work (spec §7
+/// `remote_type`). `UNKNOWN` is used when the posting doesn't state it —
+/// this is a fact about the posting, so it gets its own enum instead of
+/// reusing RemotePreference (a candidate can never be "unknown" about their
+/// own preference, but a scraped posting often is).
+enum RemoteType {
+  ON_SITE
+  REMOTE
+  HYBRID
+  UNKNOWN
+}
+
+/// Spec §7 lists `employment_type` as a canonical job field but doesn't
+/// define its allowed values. JUDGMENT CALL: this is the simple vocabulary
+/// that covers what an internship-focused product actually needs to
+/// distinguish. `OTHER` is the catch-all for anything that doesn't fit.
+enum EmploymentType {
+  INTERNSHIP
+  CO_OP
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  OTHER
+}
+
+/// Spec §7 lists `status` as a canonical job field but doesn't define its
+/// values either. JUDGMENT CALL: these are the lifecycle states a scraped
+/// posting can be in from the scanner's point of view (separate from an
+/// Application's own workflow state below).
+enum JobStatus {
+  OPEN
+  CLOSED
+  FILLED
+  REMOVED
+  UNKNOWN
+}
+
+/// Categories for a Truth Ledger fact (spec §3). This is the exact set the
+/// task called for: every fact the AI is allowed to draw on must be filed
+/// under one of these, so the AI can never quietly invent a category of
+/// qualification that doesn't exist here.
+enum TruthFactCategory {
+  EXPERIENCE
+  PROJECT
+  EDUCATION
+  SKILL
+  CERTIFICATION
+  OTHER
+}
+
+/// Per-ATS auto-apply behavior (spec §18 `auto_apply: { greenhouse: true,
+/// ashby: review, unknown: false }`). `AUTO` = submit without asking,
+/// `REVIEW` = prepare the application but wait for a human to approve,
+/// `DISABLED` = never auto-apply through this ATS.
+enum AutoApplyMode {
+  AUTO
+  REVIEW
+  DISABLED
+}
+
+/// The application workflow state machine (spec §23), plus its exception
+/// states. Every Application row is "resumable" because its entire progress
+/// is captured by this one field — a crashed worker can always look at
+/// `status` and figure out what step to retry next.
+///
+/// The happy path runs top to bottom. The exception states below the line
+/// can be entered from most of the "in flight" happy-path states and always
+/// require either a retry or a human to unblock them.
+enum ApplicationStatus {
+  DISCOVERED
+  NORMALIZED
+  ELIGIBLE
+  MATCHED
+  MATERIALS_READY
+  PREFLIGHTED
+  QUEUED
+  APPLYING
+  SUBMITTED_PENDING_CONFIRMATION
+  CONFIRMED
+  // --- exception states (spec §23) ---
+  WAITING_FOR_USER
+  CAPTCHA
+  LOGIN_REQUIRED
+  AMBIGUOUS_QUESTION
+  JOB_CLOSED
+  FAILED
+  SKIPPED
+}
+
+/// JUDGMENT CALL, flag for review: spec §24's tracker lists a "Status"
+/// column with real-world outcomes (OA, Interview, Offer, Rejected, ...)
+/// that only make sense *after* an application reaches CONFIRMED. The
+/// ApplicationStatus enum above is the pipeline/workflow state machine from
+/// spec §23, which stops at CONFIRMED — it never mentions these outcomes.
+/// Rather than bolt outcome values onto the workflow enum (which would mix
+/// "where is this application in our automation pipeline" with "how did the
+/// employer respond"), this is a separate, nullable field. Gmail status
+/// tracking (spec §25) is what's expected to set it.
+enum ApplicationOutcome {
+  OA
+  INTERVIEW
+  FINAL_ROUND
+  OFFER
+  REJECTED
+  WITHDRAWN
+  GHOSTED
+  CLOSED
+}
+
+/// What kind of thing an EventLog row is describing — a Job or an
+/// Application. Kept as an enum instead of two separate log tables so there
+/// is exactly one append-only audit trail to look at (spec §40 Phase 1
+/// "Job/application event logs").
+enum EventEntityType {
+  JOB
+  APPLICATION
+}
+
+// ----------------------------------------------------------------------------
+// CANDIDATE PROFILE (spec §2 — "the user creates their profile once and the
+// entire platform reuses it")
+// ----------------------------------------------------------------------------
+
+/// The unified candidate profile. Every other part of the platform (resume
+/// builder, eligibility engine, autofill) reads from here instead of asking
+/// the user to re-enter the same information. In Phase 1 this app is
+/// expected to have exactly one real Candidate row (the app's owner), but
+/// the schema doesn't hard-code that assumption anywhere.
+model Candidate {
+  id    String  @id @default(cuid())
+  name  String
+  email String  @unique
+  phone String?
+
+  /// Free-text mailing/location address. Not split into street/city/zip
+  /// because nothing in Phase 1 needs to query on the pieces individually —
+  /// JUDGMENT CALL, simple option chosen on purpose.
+  address String?
+
+  // --- current program (used for quick eligibility checks & the dashboard)
+  school         String?
+  degree         String?
+  /// Expected graduation date for the primary/current program. See the
+  /// Education model below for a full history including past degrees.
+  graduationDate DateTime?
+
+  // --- eligibility-critical fields (spec §11 Hard Eligibility Engine reads
+  // these directly — get them wrong and the bot will apply to jobs it can't
+  // legally take, or skip ones it's actually eligible for)
+  /// Free text on purpose (e.g. "US Citizen", "OPT/CPT", "H1B needed") —
+  /// JUDGMENT CALL: there are too many real-world combinations to model as
+  /// a clean enum without risk of forcing a wrong answer.
+  workAuthorization String?
+  /// Whether the candidate will need visa sponsorship now or in the future.
+  /// This is a hard eligibility gate (spec §11), not just informational.
+  needsSponsorship  Boolean @default(false)
+  /// Only relevant for roles with citizenship/clearance requirements
+  /// (spec §11 examples: security clearance, citizenship-restricted roles).
+  citizenship       String?
+
+  // --- preferences that feed the match engine (spec §12) and eligibility
+  preferredLocations String[]
+  remotePreference   RemotePreference @default(ANY)
+  /// Whole-currency-unit minimum acceptable salary (e.g. 25 = $25/hr or
+  /// $25k/yr depending on how the role reports it — Phase 1 doesn't yet
+  /// normalize pay period, see Job.salaryMin/Max for the same judgment call).
+  minimumSalary      Int?
+  desiredRoles       String[]
+
+  // --- resume/matching inputs
+  skills         String[]
+  certifications String[]
+
+  linkedinUrl  String?
+  githubUrl    String?
+  portfolioUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // --- related profile data (spec §2 "Work experience / Projects /
+  // Education / Reusable application answers")
+  workExperiences   WorkExperience[]
+  projects          Project[]
+  education         Education[]
+  truthFacts        TruthFact[]
+  answerBankEntries AnswerBankEntry[]
+  preferences       CandidatePreferences?
+  applications      Application[]
+}
+
+/// One job the candidate has held. This is candidate-provided description
+/// text (what goes on a resume) — the verifiable, AI-safe version of the
+/// same experience lives in TruthFact below, which is what the resume/cover
+/// letter AI is actually allowed to draw claims from (spec §3).
+model WorkExperience {
+  id          String    @id @default(cuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  company   String
+  title     String
+  location  String?
+  startDate DateTime
+  /// Null means "still working here."
+  endDate   DateTime?
+  isCurrent Boolean   @default(false)
+
+  /// Resume-style bullet lines describing what was done in this role.
+  bullets      String[]
+  technologies String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// A personal/academic/side project (spec §2 "Projects"). Same relationship
+/// to TruthFact as WorkExperience above — this is descriptive, TruthFact is
+/// the verified claim the AI can quote.
+model Project {
+  id          String    @id @default(cuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  name         String
+  description  String?
+  technologies String[]
+  url          String?
+  startDate    DateTime?
+  endDate      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Full education history. Note this is separate from the `school` /
+/// `degree` / `graduationDate` fields directly on Candidate — those three
+/// represent the *current/primary* program for quick lookups, while this
+/// table holds the complete history (useful once the resume builder needs
+/// to list multiple degrees). JUDGMENT CALL: kept both rather than forcing
+/// every read of "what school" through a join.
+model Education {
+  id          String    @id @default(cuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  school         String
+  degree         String
+  fieldOfStudy   String?
+  startDate      DateTime?
+  endDate        DateTime?
+  graduationDate DateTime?
+  /// On a 4.0 scale by convention; stored as a plain float, not validated
+  /// against any particular scale — JUDGMENT CALL, simple option.
+  gpa            Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ----------------------------------------------------------------------------
+// TRUTH LEDGER (spec §3 — "the AI should never invent qualifications")
+// ----------------------------------------------------------------------------
+
+/// A single structured, verifiable fact about the candidate. This is the
+/// *only* thing the resume/cover-letter/answer AI is allowed to treat as
+/// true. Per spec §3 the AI may rephrase, combine, and target these facts
+/// toward job keywords, but it may never invent a new one — so anything
+/// that isn't in this table (or derived from WorkExperience/Project/
+/// Education above) simply does not exist as far as the AI is concerned.
+model TruthFact {
+  id          String    @id @default(cuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  category TruthFactCategory
+
+  /// The fact itself, in plain language (spec §3 examples: "Uniqlo —
+  /// Seasonal Sales Associate — Inventory and restocking"). This is what
+  /// gets fed to the AI as ground truth.
+  statement String
+
+  // --- optional structured fields, filled in when they apply, so the fact
+  // can also be queried/filtered without parsing `statement` (e.g. "show me
+  // every fact that mentions Python"). None of these are required because
+  // not every fact fits the same shape (a skill fact doesn't have a company).
+  company    String?
+  role       String?
+  technology String?
+  /// Only ever set when a real number exists (spec §3: "Quantify only when
+  /// a real number exists" / "may not invent metrics") — e.g. "50 units/day".
+  /// Left null rather than guessed.
+  metric     String?
+
+  /// When the underlying fact happened/was true, if relevant (e.g. a
+  /// certification's issue date). Not the same as `createdAt`, which is
+  /// just when this row was entered into the ledger.
+  sourceDate DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ----------------------------------------------------------------------------
+// AUTO-APPLY RULES (spec §18)
+// ----------------------------------------------------------------------------
+
+/// One row per candidate holding their auto-apply thresholds and limits
+/// (spec §18). Kept as its own table (1:1 with Candidate) instead of columns
+/// bolted onto Candidate so the "who am I" data and the "how aggressively
+/// should the bot act on my behalf" data stay clearly separated.
+model CandidatePreferences {
+  id          String    @id @default(cuid())
+  candidateId String    @unique
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  /// Spec §18 `minimum_fit_score` — jobs scoring below this (0-100, spec
+  /// §12) are never queued for application, auto or otherwise.
+  minimumFitScore              Int @default(0)
+  /// Spec §18 `minimum_application_confidence` — spec §17's separate 0-100
+  /// confidence score; even a great job-fit match won't auto-submit below
+  /// this if the bot isn't confident it filled the form out correctly.
+  minimumApplicationConfidence Int @default(0)
+  /// Spec §18 `maximum_posting_age_hours` — ignore postings older than this
+  /// so the bot doesn't spend effort on jobs likely already filled.
+  maximumPostingAgeHours       Int @default(72)
+  /// Spec §18 `daily_application_limit`.
+  dailyApplicationLimit        Int @default(25)
+  /// Spec §18 `maximum_applications_per_company`.
+  maxApplicationsPerCompany    Int @default(3)
+
+  /// JUDGMENT CALL: spec §18's example YAML has one hand-written key per ATS
+  /// (`greenhouse: true`, `ashby: review`, ...). Modeling that as ten
+  /// separate nullable columns (one per AtsType, spec §4) would need a
+  /// schema migration every time a new ATS adapter is added. Instead this
+  /// is a JSON map of ATS name -> AutoApplyMode (e.g.
+  /// `{ "GREENHOUSE": "AUTO", "ASHBY": "REVIEW" }`), with any ATS not
+  /// present treated as `DISABLED` by the application code — mirroring
+  /// spec §18's `unknown: false` default. This is application-level
+  /// validated JSON, not a Prisma-enforced structure — flag for review if a
+  /// stronger guarantee is wanted later.
+  atsAutoApplyModes Json @default("{}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ----------------------------------------------------------------------------
+// APPLICATION ANSWER BANK (spec §16)
+// ----------------------------------------------------------------------------
+
+/// A reusable answer to a common application question (spec §16 examples:
+/// "Are you authorized to work in the US?", "Why this company?"). The
+/// autofill worker looks here first before ever asking the AI to improvise
+/// an answer — and per spec §16, "unknown answers should pause automation
+/// rather than being invented," so a missing row here is a deliberate stop
+/// signal, not a bug to silently work around.
+model AnswerBankEntry {
+  id          String    @id @default(cuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  question String
+  answer   String
+
+  /// 0-100 confidence, only meaningful for AI-drafted answers (spec §16
+  /// "Custom AI answers should receive a confidence score"). Null for
+  /// answers the candidate typed themselves — those are just true by
+  /// definition and don't need a confidence score.
+  confidence Int?
+
+  /// Legal/eligibility-sensitive question (sponsorship, work authorization,
+  /// citizenship, disability/veteran status, etc). Flagged separately so
+  /// the app can require extra care (e.g. never let the AI guess these).
+  isLegal    Boolean @default(false)
+  /// A well-known, reusable-across-companies question (e.g. "salary
+  /// expectations") as opposed to a one-off question specific to a single
+  /// job posting.
+  isStandard Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ----------------------------------------------------------------------------
+// COMPANY + ATS REGISTRY (spec §4)
+// ----------------------------------------------------------------------------
+
+/// A company whose career site/ATS board the scanner monitors. Fields match
+/// spec §4's Company Schema exactly.
+model Company {
+  id String @id @default(cuid())
+
+  name       String
+  /// Company's primary web domain, mostly for dedupe/display (e.g.
+  /// "stripe.com").
+  domain     String?
+  careersUrl String?
+
+  /// Which ATS platform this company's board runs on. Null until the
+  /// scanner (or a human) has identified it.
+  atsType       AtsType?
+  /// The ATS-specific board token/slug/tenant needed to actually query that
+  /// platform's API (e.g. Greenhouse board token "stripe", Lever site id
+  /// "palantir"). Null when `atsType` is known but the exact identifier
+  /// hasn't been confirmed yet — see prisma/seed.ts for real examples of
+  /// both states.
+  atsIdentifier String?
+
+  country     String?
+  companySize String?
+
+  /// Last time the scanner successfully polled this company's board.
+  lastScan   DateTime?
+  /// Last time a scan actually detected a change (new/removed/updated
+  /// job) — used to drive adaptive polling (spec §5: recently-active boards
+  /// get scanned more often).
+  lastChange DateTime?
+
+  /// Lower number = scanned more often. JUDGMENT CALL on default and
+  /// direction (lower-is-higher-priority) since spec §5 describes priority
+  /// tiers ("Priority companies every ~5 minutes...") but not the field's
+  /// numeric convention.
+  scanPriority Int @default(50)
+  /// Minutes between scans for this company, the concrete number the
+  /// scheduler actually uses (spec §5 adaptive polling: 5/10-15/30/60 min
+  /// tiers depending on activity).
+  pollInterval Int @default(30)
+
+  /// Consecutive failed-scan count (spec §5 "error -> backoff -> retry
+  /// later"). Reset to 0 on a successful scan; used to drive backoff and,
+  /// eventually, to disable a chronically-failing adapter (spec §37).
+  failureCount Int     @default(0)
+  /// Whether the scanner should poll this company at all. False for
+  /// companies that are known but not yet verified/onboarded, or that have
+  /// been paused after repeated failures.
+  active       Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  jobs Job[]
+
+  // Scan-queue lookup: "give me active companies, oldest-scanned first."
+  @@index([active, lastScan])
+}
+
+// ----------------------------------------------------------------------------
+// CANONICAL JOB SCHEMA (spec §7) + DEDUPLICATION (spec §8)
+// ----------------------------------------------------------------------------
+
+/// One normalized job posting. Every job the scanner finds, regardless of
+/// which ATS it came from, gets converted into this common shape (spec §7)
+/// so the rest of the pipeline (eligibility, matching, applying) never has
+/// to know or care what ATS it originally came from.
+model Job {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  /// Where this posting was discovered (e.g. "greenhouse-api",
+  /// "company-careers-page", "curated-feed:simplify") — spec §6 sources.
+  source      String
+  /// The ID the source itself uses for this posting (e.g. Greenhouse's
+  /// numeric job id). Combined with `companyId`, this is one of the
+  /// dedupe signals from spec §8.
+  sourceJobId String
+  atsType     AtsType
+
+  title          String
+  location       String?
+  remoteType     RemoteType     @default(UNKNOWN)
+  employmentType EmploymentType @default(OTHER)
+
+  /// JUDGMENT CALL: stored as whole-unit integers (not Decimal/cents)
+  /// because postings are inconsistent about hourly vs annual vs stipend —
+  /// Phase 1 stores whatever number the posting gave and leaves period
+  /// normalization to a later phase. Null when the posting doesn't list pay.
+  salaryMin Int?
+  salaryMax Int?
+  /// Deliberately has NO default. Defaulting to "USD" would stamp a currency
+  /// onto every posting we never read one from, including London and Berlin
+  /// internships — a quietly invented fact of exactly the kind spec §3 bans.
+  /// Null means "the posting did not say", which is the truth.
+  currency  String?
+
+  description  String @db.Text
+  /// The employer's own posting URL — per spec §6, the platform should
+  /// always resolve back to this before scoring or applying, even if the
+  /// job was discovered via a curated feed.
+  canonicalUrl String
+
+  /// Spec §8 dedupe fingerprint: `SHA256(company + canonical_job_id)`,
+  /// computed by application code (not the database) and stored here so a
+  /// unique constraint can catch duplicates before they're ever inserted.
+  fingerprint String @unique
+
+  /// When the employer says the job was posted (if the posting says).
+  sourcePostedAt DateTime?
+  /// When our scanner first saw this posting.
+  firstSeenAt    DateTime  @default(now())
+  /// When our scanner most recently saw this posting still listed. Set
+  /// explicitly by the scanner each time it re-confirms the job is still
+  /// up — deliberately NOT `@updatedAt`, since that would also bump on
+  /// unrelated edits (e.g. a status correction) that aren't actually a
+  /// fresh sighting.
+  lastSeenAt     DateTime  @default(now())
+  /// Standard "last modified" timestamp for this row, managed by Prisma.
+  updatedAt      DateTime  @updatedAt
+
+  status JobStatus @default(OPEN)
+
+  applications Application[]
+
+  // Extra dedupe safety net beyond the fingerprint above (spec §8 also
+  // lists "ATS source ID" + "Company" as dedupe signals on their own) —
+  // JUDGMENT CALL, belt-and-suspenders in case fingerprint computation
+  // ever has a bug.
+  @@unique([companyId, sourceJobId])
+  @@index([status])
+  @@index([firstSeenAt])
+}
+
+// ----------------------------------------------------------------------------
+// APPLICATION (workflow state machine spec §23 + tracker spec §24)
+// ----------------------------------------------------------------------------
+
+/// One candidate's application to one job. This is the row that moves
+/// through the entire state machine in spec §23, and is also what the
+/// tracker (spec §24) and Gmail status updates (spec §25) attach to.
+///
+/// CRITICAL (spec §8): `@@unique([candidateId, jobId])` below is what
+/// physically prevents the bot from ever applying to the same job twice for
+/// the same candidate — a second attempt must update this row, not insert
+/// a new one.
+model Application {
+  id String @id @default(cuid())
+
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  /// Deliberately NOT cascading on delete: if a Job row is ever removed,
+  /// we keep the Application (and its history) rather than silently losing
+  /// a record of "we applied here" — JUDGMENT CALL, flag for review if hard
+  /// deletes of Jobs are expected to be common.
+  jobId String
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Restrict)
+
+  /// Where this application currently sits in the automation pipeline
+  /// (spec §23). This is what makes the application resumable — a worker
+  /// that crashes mid-flow can always pick this value back up.
+  status  ApplicationStatus   @default(DISCOVERED)
+  /// Real-world response from the employer, set after CONFIRMED, mostly via
+  /// Gmail detection (spec §25). See the enum's doc comment for why this is
+  /// separate from `status`.
+  outcome ApplicationOutcome?
+
+  /// Job-fit score, 0-100 (spec §12). Set when status reaches MATCHED.
+  fitScore              Int?
+  /// Application confidence, 0-100 (spec §17) — separate from fitScore on
+  /// purpose: a candidate can be a 95% fit for a job the bot is only 40%
+  /// confident it can fill out correctly. Set during PREFLIGHTED.
+  applicationConfidence Int?
+
+  /// spec §24 "Date discovered" — when this application record was created
+  /// (i.e. when this candidate/job pair first became relevant), not to be
+  /// confused with Job.firstSeenAt (when the job itself was first scraped,
+  /// which may predate any candidate matching against it).
+  discoveredAt DateTime  @default(now())
+  /// spec §24 "Date applied" — when the submit actually happened
+  /// (status -> SUBMITTED_PENDING_CONFIRMATION).
+  appliedAt    DateTime?
+  /// When Gmail (or a human) confirmed the application went through
+  /// (status -> CONFIRMED).
+  confirmedAt  DateTime?
+
+  /// spec §24 "Resume used" / "Cover letter used". JUDGMENT CALL: stored
+  /// here as plain identifiers/file references (e.g. a filename or version
+  /// tag) rather than foreign keys, because Phase 1 doesn't build the
+  /// Resume/CoverLetter models yet (that's spec §40 Phase 4). Revisit once
+  /// those models exist and point these at real rows instead.
+  resumeUsed      String?
+  coverLetterUsed String?
+
+  /// spec §24 "Answers submitted" — a snapshot of the actual Q&A sent to
+  /// the employer for this specific application (as opposed to
+  /// AnswerBankEntry, which holds the candidate's reusable general
+  /// answers). Stored as JSON since the question set differs per posting.
+  submittedAnswers Json?
+
+  /// spec §24 "Recruiter". JUDGMENT CALL: a plain string for now (e.g. a
+  /// name/email) rather than a full Contact model, since the recruiter
+  /// finder/CRM (spec §26-27) is a later phase.
+  recruiterContact String?
+
+  /// spec §24 "Interview dates" — every interview date scheduled for this
+  /// application, in case there are several rounds.
+  interviewDates DateTime[]
+  /// spec §24 "Notes" — free-form notes a human adds while tracking this
+  /// application.
+  notes          String?    @db.Text
+
+  /// Populated when status = FAILED, so a human (or a retry job) can see
+  /// why without having to dig through EventLog.
+  failureReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Prevents duplicate applications outright (spec §8).
+  @@unique([candidateId, jobId])
+  @@index([status])
+}
+
+// ----------------------------------------------------------------------------
+// EVENT LOG (spec §40 Phase 1 — "Job/application event logs")
+// ----------------------------------------------------------------------------
+
+/// Append-only audit trail of everything that happened to a Job or an
+/// Application (e.g. "status changed from QUEUED to APPLYING", "scan found
+/// this job", "CAPTCHA detected"). Nothing ever updates or deletes a row
+/// here — it's a log, not a live-state table (live state lives on the Job/
+/// Application rows themselves). This is what lets you reconstruct exactly
+/// what the bot did and why, after the fact.
+model EventLog {
+  id String @id @default(cuid())
+
+  /// Which kind of row this event is about.
+  entityType EventEntityType
+  /// The id of that Job or Application row. Not a real foreign key on
+  /// purpose — a log entry should survive even if the entity it refers to
+  /// is later deleted, and a single log table can't have two different FK
+  /// targets depending on `entityType`.
+  entityId   String
+
+  /// Short machine-readable label for what happened (e.g.
+  /// "status_changed", "scan_error", "captcha_detected"). Free text rather
+  /// than an enum — JUDGMENT CALL, keeps this table extensible without a
+  /// migration every time a new event type is added.
+  eventType String
+
+  /// Arbitrary event-specific detail (e.g. `{ "from": "QUEUED", "to":
+  /// "APPLYING" }`), so this one table can log any kind of event without
+  /// needing a different schema per event type.
+  payload Json?
+
+  createdAt DateTime @default(now())
+
+  // Look up "everything that happened to this Job/Application," in order.
+  @@index([entityType, entityId])
+}
