@@ -28,6 +28,11 @@ discover → normalize → filter → eligibility → fit score → tailor docs
 | Files              | Local in dev, S3 in prod      |
 | Deployment         | AWS (EC2 → RDS/S3 → ECS)      |
 
+## How it fits together
+
+`docs/ARCHITECTURE.md` maps each spec section to the module that implements it,
+and records the two places this build deliberately differs from the spec.
+
 ## Running the database locally
 
 Two options. **This machine uses option B.**
