@@ -22,6 +22,7 @@ export default function RootLayout({
         <nav className="site-nav">
           <a href="/jobs">Jobs</a>
           <a href="/applications">Applications</a>
+          <a href="/answers">Answers</a>
           <a href="/profile">Profile</a>
         </nav>
         {children}

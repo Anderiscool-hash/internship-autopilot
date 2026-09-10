@@ -862,3 +862,18 @@ table.fit .points {
   display: block;
   margin-bottom: 0.2rem;
 }
+
+/* --- answer bank --- */
+
+.answer-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+  width: 100%;
+  padding: 0.25rem 0;
+}
+
+.answer-row + form {
+  margin-left: 1rem;
+}

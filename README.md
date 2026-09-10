@@ -77,6 +77,10 @@ workflow states behind those columns are spec §23's, and the state machine
 refuses illegal moves — though you can always report what actually happened,
 since "I applied to this myself" is a fact, not a step in the bot's plan.
 
+`/answers` is the application answer bank (spec §16): the handful of questions
+every form asks, answered once. A question with no answer here is what makes an
+apply run stop and ask you rather than invent something.
+
 `/profile` is where you enter who you are and what is true about you — the
 Truth Ledger (spec §3) is the only source of claims the AI is ever allowed to
 make on your behalf, so nothing downstream works until it has something in it.
@@ -127,7 +131,8 @@ classifier, the continuous scanner with adaptive polling and removal tracking,
 the job dashboard, internship alerts, the profile + Truth Ledger screen, and
 the rule-based half of Phase 3 — requirement extraction, the hard eligibility
 engine, and the fit engine, all shown on each job's detail page; and the
-application tracker with its §23 state machine. Not built: resume coverage
+application tracker with its §23 state machine, and the answer bank (§16).
+Not built: resume coverage
 (§13), the document builders (Phase 4), and the Playwright apply flow
 (Phase 5) — eligibility, fit scoring, resumes, and applying.
 See §40 of the plan for the roadmap and §41 for what counts as a usable V1.
