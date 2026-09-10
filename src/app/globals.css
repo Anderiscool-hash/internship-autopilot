@@ -325,3 +325,17 @@ code {
   border-radius: 0.25rem;
   padding: 0.05rem 0.3rem;
 }
+
+.badge-closed {
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+/* A checkbox reads better beside its label than stacked above it. */
+.filter-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+  padding-bottom: 0.4rem;
+}

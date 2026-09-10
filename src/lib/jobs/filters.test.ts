@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { AtsType, RemoteType } from "@prisma/client";
+import { AtsType, JobStatus, RemoteType } from "@prisma/client";
 import { parseJobFilters, buildJobWhere, buildJobsHref, type JobFilters } from "./filters";
 
 /** A no-filters baseline, so each test can change just the field it cares about. */
@@ -19,6 +19,7 @@ const EMPTY: JobFilters = {
   remoteType: null,
   withinDays: null,
   verdict: null,
+  includeClosed: false,
   page: 1,
 };
 
@@ -45,6 +46,7 @@ describe("parseJobFilters", () => {
       remoteType: RemoteType.REMOTE,
       withinDays: 7,
       verdict: "keep",
+      includeClosed: false,
       page: 3,
     });
   });
@@ -96,12 +98,14 @@ describe("parseJobFilters", () => {
 describe("buildJobWhere", () => {
   const now = new Date("2026-09-10T12:00:00.000Z");
 
-  it("produces an empty clause when nothing is filtered", () => {
-    expect(buildJobWhere(EMPTY, now)).toEqual({});
+  it("hides closed postings unless they are asked for", () => {
+    expect(buildJobWhere(EMPTY, now)).toEqual({ status: JobStatus.OPEN });
+    expect(buildJobWhere({ ...EMPTY, includeClosed: true }, now)).toEqual({});
   });
 
   it("matches titles case-insensitively", () => {
     expect(buildJobWhere({ ...EMPTY, q: "Intern" }, now)).toEqual({
+      status: JobStatus.OPEN,
       title: { contains: "Intern", mode: "insensitive" },
     });
   });
@@ -113,7 +117,7 @@ describe("buildJobWhere", () => {
 
   it("never puts the verdict into SQL — it is not a column", () => {
     const where = buildJobWhere({ ...EMPTY, verdict: "keep" }, now);
-    expect(where).toEqual({});
+    expect(where).toEqual({ status: JobStatus.OPEN });
   });
 
   it("combines several filters into one clause", () => {
@@ -122,6 +126,7 @@ describe("buildJobWhere", () => {
       now,
     );
     expect(where).toEqual({
+      status: JobStatus.OPEN,
       companyId: "cmp_1",
       atsType: AtsType.LEVER,
       remoteType: RemoteType.HYBRID,
@@ -146,6 +151,14 @@ describe("buildJobsHref", () => {
 
   it("can clear a filter by setting it back to null", () => {
     expect(buildJobsHref({ ...EMPTY, verdict: "keep" }, { verdict: null })).toBe("/jobs");
+  });
+
+  it("round-trips the include-closed toggle", () => {
+    expect(parseJobFilters({ closed: "1" }).includeClosed).toBe(true);
+    expect(parseJobFilters({ closed: "on" }).includeClosed).toBe(true);
+    expect(parseJobFilters({ closed: "nonsense" }).includeClosed).toBe(false);
+    expect(parseJobFilters({}).includeClosed).toBe(false);
+    expect(buildJobsHref({ ...EMPTY, includeClosed: true })).toBe("/jobs?closed=1");
   });
 
   it("escapes values that need it", () => {

@@ -12,6 +12,7 @@
  * student role", not "you can't apply".
  */
 
+import { JobStatus } from "@prisma/client";
 import type { ClassifiedJob } from "@/lib/jobs/list";
 import type { JobListRow } from "@/lib/jobs/query";
 import { formatAge, formatEnum, formatLocation, formatSalary } from "./format";
@@ -61,6 +62,14 @@ export function JobTable({ rows, verdicts, now }: JobTableProps) {
                   >
                     {job.title}
                   </a>
+                  {job.status !== JobStatus.OPEN ? (
+                    <span
+                      className="badge badge-closed"
+                      title="This posting no longer appears on the company's board."
+                    >
+                      {job.status.toLowerCase()}
+                    </span>
+                  ) : null}
                   {classified ? (
                     <span
                       className={`badge badge-${classified.verdict}`}

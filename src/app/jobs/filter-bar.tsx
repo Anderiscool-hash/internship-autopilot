@@ -83,6 +83,16 @@ export function FilterBar({ filters, companies }: FilterBarProps) {
         </select>
       </label>
 
+      <label className="filter filter-check">
+        <input
+          type="checkbox"
+          name="closed"
+          value="1"
+          defaultChecked={filters.includeClosed}
+        />
+        <span>Include closed</span>
+      </label>
+
       {/* Carries the chip selection through a form submit. */}
       {filters.verdict ? (
         <input type="hidden" name="verdict" value={filters.verdict} />

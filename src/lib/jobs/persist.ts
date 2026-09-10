@@ -112,3 +112,19 @@ export async function upsertJob(
   });
   return "created";
 }
+
+/**
+ * The reverse of `ATS_TO_DB`: turn a stored enum value back into the
+ * lowercase name the ATS clients use.
+ *
+ * Built by inverting the map above rather than written out a second time, so
+ * the two directions cannot drift apart when a new ATS is added.
+ */
+const DB_TO_ATS = Object.fromEntries(
+  Object.entries(ATS_TO_DB).map(([code, dbValue]) => [dbValue, code]),
+) as Record<DbAtsType, AtsType>;
+
+/** Translate a database ATS enum value into the code-side name. */
+export function dbAtsToCode(dbValue: DbAtsType): AtsType {
+  return DB_TO_ATS[dbValue];
+}

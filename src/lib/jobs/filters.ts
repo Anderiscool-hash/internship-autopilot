@@ -11,7 +11,12 @@
  * `?remote=banana` shows all remote types rather than silently picking one.
  */
 
-import { Prisma, RemoteType as DbRemoteType, AtsType as DbAtsType } from "@prisma/client";
+import {
+  Prisma,
+  RemoteType as DbRemoteType,
+  AtsType as DbAtsType,
+  JobStatus,
+} from "@prisma/client";
 
 /** How many jobs one page of the dashboard shows. */
 export const PAGE_SIZE = 50;
@@ -41,6 +46,15 @@ export interface JobFilters {
   withinDays: number | null;
   /** Only jobs the classifier gave this verdict. Applied in memory, not SQL. */
   verdict: Verdict | null;
+  /**
+   * Show postings the scanner has seen disappear from their board.
+   *
+   * Off by default: a closed posting cannot be applied to, so listing it
+   * alongside live ones by default would waste the reader's attention. It stays
+   * available because "did I miss this one?" is a real question, and because a
+   * job vanishing is sometimes a board glitch rather than a real closure.
+   */
+  includeClosed: boolean;
   /** 1-based page number. */
   page: number;
 }
@@ -95,6 +109,9 @@ export function parseJobFilters(raw: RawSearchParams): JobFilters {
     remoteType: oneOf(firstValue(raw, "remote"), Object.values(DbRemoteType)),
     withinDays,
     verdict: oneOf(firstValue(raw, "verdict"), VERDICTS),
+    // A checkbox submits "on"; the pagination links write "1". Anything else
+    // (including the parameter being absent) means the box was unchecked.
+    includeClosed: ["1", "on", "true"].includes(firstValue(raw, "closed") ?? ""),
     page,
   };
 }
@@ -112,6 +129,14 @@ export function parseJobFilters(raw: RawSearchParams): JobFilters {
  */
 export function buildJobWhere(filters: JobFilters, now: Date): Prisma.JobWhereInput {
   const where: Prisma.JobWhereInput = {};
+
+  // The scanner sets CLOSED when a posting stops appearing on its board
+  // (spec §5). Everything else — FILLED, REMOVED, UNKNOWN — is a state nothing
+  // sets yet, so this deliberately says "only OPEN" rather than "not CLOSED":
+  // when those states do arrive, they should have to opt in to being shown.
+  if (!filters.includeClosed) {
+    where.status = JobStatus.OPEN;
+  }
 
   if (filters.q) {
     where.title = { contains: filters.q, mode: "insensitive" };
@@ -162,6 +187,7 @@ export function buildJobsHref(
   if (merged.remoteType) params.set("remote", merged.remoteType);
   if (merged.withinDays !== null) params.set("days", String(merged.withinDays));
   if (merged.verdict) params.set("verdict", merged.verdict);
+  if (merged.includeClosed) params.set("closed", "1");
   if (merged.page > 1) params.set("page", String(merged.page));
 
   const query = params.toString();

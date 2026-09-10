@@ -16,7 +16,7 @@
  */
 
 import type { PrismaClient } from "@prisma/client";
-import { AtsType as DbAtsType, RemoteType as DbRemoteType } from "@prisma/client";
+import { AtsType as DbAtsType, JobStatus, RemoteType as DbRemoteType } from "@prisma/client";
 import { buildJobWhere, type JobFilters } from "./filters";
 import { buildJobPage, orderByIds, MAX_SCAN, type JobPage } from "./list";
 
@@ -35,6 +35,8 @@ export interface JobListRow {
   canonicalUrl: string;
   firstSeenAt: Date;
   lastSeenAt: Date;
+  /** OPEN, or CLOSED once the scanner saw it vanish from its board. */
+  status: JobStatus;
 }
 
 /** A page of the dashboard: the rows themselves plus the counts around them. */
@@ -94,6 +96,7 @@ export async function listJobs(
             canonicalUrl: true,
             firstSeenAt: true,
             lastSeenAt: true,
+            status: true,
             company: { select: { name: true } },
           },
         });
