@@ -87,7 +87,7 @@ export default async function JobDetailPage({ params, searchParams }: JobPagePro
       : "Not scored: this job fails a hard requirement above, and spec §12 only scores jobs you are eligible for.";
 
   return (
-    <main className="page page-wide">
+    <main className="page">
       <p className="crumb">
         <a href="/jobs">← All jobs</a>
       </p>
