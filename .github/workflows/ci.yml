@@ -1,0 +1,52 @@
+# Continuous integration.
+#
+# Runs the three checks that can run without a database: type checking, the
+# unit tests, and a production build. Nothing here touches Postgres — every
+# test in this repo is over pure logic (normalization, dedupe, classification,
+# eligibility, fit, the state machine), and the pages are all rendered on
+# request rather than at build time, so `next build` needs no connection.
+#
+# That is deliberate rather than convenient: a test suite that needs a live
+# database is one people stop running.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` installs exactly what package-lock.json pins.
+      - name: Install
+        run: npm ci
+
+      # The Prisma client is generated code, not checked in — everything that
+      # imports @prisma/client needs this to have run first.
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # DATABASE_URL is only read when a query actually runs, but Prisma's
+      # client construction wants it present, so give the build a placeholder
+      # that points nowhere. Nothing connects to it.
+      - name: Build
+        run: npm run build
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci?schema=public

@@ -69,7 +69,12 @@ npm run db:studio      # browse the data in a GUI
 npm run dev            # dashboard at http://localhost:3000
 npm test               # unit tests (no database needed)
 npm run typecheck      # tsc --noEmit
+npm run build          # production build (also type-checks)
 ```
+
+CI runs those same three checks on every push and pull request
+(`.github/workflows/ci.yml`). None of them needs a database — every test here
+is over pure logic, and the pages render on request rather than at build time.
 
 `/applications` is the tracker (spec §24): jobs you have saved, grouped into
 Saved / Preparing / Needs you / Applied / Closed, with outcomes and notes. The
