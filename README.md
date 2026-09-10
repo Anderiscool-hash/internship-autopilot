@@ -125,6 +125,22 @@ so there is no sort-by-fit yet — that needs the score precomputed per job,
 which it cannot be while it depends on a profile that changes. Closed postings are hidden unless
 you tick "Include closed".
 
+## Reaching it from another device
+
+Local requests — this machine, or another device on the same home network —
+never need a password. Anything else does.
+
+Set `APP_PASSWORD` in `.env` and restart. Until you do, requests arriving on
+any non-local hostname get a 503 explaining why rather than the app: this
+holds work authorization, graduation date and resume history, and an unlocked
+public copy is a public copy of all of it. That default is deliberate — a
+deployment where nobody remembered to set a password is the accident worth
+designing against.
+
+Sessions are a signed cookie with a 30-day expiry and no server-side state.
+Changing `APP_PASSWORD` invalidates every existing session, since the signing
+key is derived from the password itself.
+
 ## Running the scanner
 
 ```bash

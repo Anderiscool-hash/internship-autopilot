@@ -1390,3 +1390,16 @@ ul.ledger li:first-child {
     margin-left: 0;
   }
 }
+
+/* --- login ---------------------------------------------------------------- */
+
+.login-page {
+  max-width: 22rem;
+  padding-top: var(--space-7);
+}
+
+.nav-signout {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
