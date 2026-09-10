@@ -15,7 +15,16 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {/* Plain links rather than a client-side nav component: every screen in
+            this app is server-rendered, so there is nothing for JavaScript to
+            do here. */}
+        <nav className="site-nav">
+          <a href="/jobs">Jobs</a>
+          <a href="/profile">Profile</a>
+        </nav>
+        {children}
+      </body>
     </html>
   );
 }

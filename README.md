@@ -71,6 +71,10 @@ npm test               # unit tests (no database needed)
 npm run typecheck      # tsc --noEmit
 ```
 
+`/profile` is where you enter who you are and what is true about you — the
+Truth Ledger (spec §3) is the only source of claims the AI is ever allowed to
+make on your behalf, so nothing downstream works until it has something in it.
+
 The dashboard lives at `/jobs`: every discovered posting, newest first,
 filterable by title, company, ATS, remote type, how recently it was first seen,
 and the student-role classifier's verdict. Closed postings are hidden unless
@@ -107,7 +111,8 @@ Environment variables: `SCAN_CYCLE_SECONDS` (default 60), `SCAN_LIMIT`
 **Phase 1 complete; Phase 2 nearly.** Built: the schema and migrations, the
 company registry, Greenhouse/Lever/Ashby clients, dedupe, the student-role
 classifier, the continuous scanner with adaptive polling and removal tracking,
-the job dashboard, and internship alerts. Not built: everything from Phase 3 on — eligibility, fit scoring, resumes, and applying.
+the job dashboard, internship alerts, and the profile + Truth Ledger screen.
+Not built: everything from Phase 3 on — eligibility, fit scoring, resumes, and applying.
 See §40 of the plan for the roadmap and §41 for what counts as a usable V1.
 
 ## Working agreement for this repo
