@@ -1,0 +1,88 @@
+/**
+ * The dashboard's results table.
+ *
+ * Each row is one discovered posting. The title links straight to the
+ * employer's own canonical URL (spec §6) — the whole point of the canonical
+ * URL is that we can always get back to the real posting, so the dashboard
+ * should never be a place where a job's source becomes unreachable.
+ *
+ * The verdict badge shows the cheap keyword classifier's opinion (spec §9),
+ * with its reasoning in the hover title. It is not an eligibility decision —
+ * that engine is Phase 3 — so a "reject" here means "almost certainly not a
+ * student role", not "you can't apply".
+ */
+
+import type { ClassifiedJob } from "@/lib/jobs/list";
+import type { JobListRow } from "@/lib/jobs/query";
+import { formatAge, formatEnum, formatLocation, formatSalary } from "./format";
+
+interface JobTableProps {
+  rows: JobListRow[];
+  verdicts: Map<string, ClassifiedJob>;
+  now: Date;
+}
+
+export function JobTable({ rows, verdicts, now }: JobTableProps) {
+  if (rows.length === 0) {
+    return (
+      <p className="empty">
+        No jobs match these filters. Try widening them, or run{" "}
+        <code>npm run discover</code> to pull fresh postings from the boards in
+        the company registry.
+      </p>
+    );
+  }
+
+  return (
+    <div className="table-wrap">
+      <table className="jobs">
+        <thead>
+          <tr>
+            <th scope="col">Role</th>
+            <th scope="col">Company</th>
+            <th scope="col">Location</th>
+            <th scope="col">Remote</th>
+            <th scope="col">Pay</th>
+            <th scope="col">Source</th>
+            <th scope="col">First seen</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((job) => {
+            const classified = verdicts.get(job.id);
+            return (
+              <tr key={job.id}>
+                <td>
+                  <a
+                    className="job-title"
+                    href={job.canonicalUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {job.title}
+                  </a>
+                  {classified ? (
+                    <span
+                      className={`badge badge-${classified.verdict}`}
+                      title={classified.reason}
+                    >
+                      {classified.verdict}
+                    </span>
+                  ) : null}
+                </td>
+                <td>{job.companyName}</td>
+                <td>{formatLocation(job.location)}</td>
+                <td>{formatEnum(job.remoteType)}</td>
+                <td>{formatSalary(job.salaryMin, job.salaryMax, job.currency)}</td>
+                <td>{formatEnum(job.atsType)}</td>
+                <td title={job.firstSeenAt.toISOString()}>
+                  {formatAge(job.firstSeenAt, now)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
