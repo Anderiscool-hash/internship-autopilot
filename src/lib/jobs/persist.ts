@@ -49,6 +49,19 @@ const REMOTE_TO_DB: Record<RemoteType, DbRemoteType> = {
 export type UpsertOutcome = "created" | "updated";
 
 /**
+ * The result of saving one job.
+ *
+ * The row id comes back alongside the outcome because callers need it: the
+ * scanner hands the ids of newly-created jobs to the alert dispatcher, and
+ * without them it would have to re-query for "jobs created in the last few
+ * seconds", which is both slower and racy.
+ */
+export interface UpsertResult {
+  outcome: UpsertOutcome;
+  jobId: string;
+}
+
+/**
  * Insert a discovered job, or refresh it if we have already seen it.
  *
  * Deduplication works off the fingerprint (spec §8), which is a hash of the
@@ -69,7 +82,7 @@ export async function upsertJob(
   db: PrismaClient,
   companyId: string,
   job: CanonicalJob,
-): Promise<UpsertOutcome> {
+): Promise<UpsertResult> {
   const fingerprint = jobFingerprint(job.companyName, job.sourceJobId);
   const now = new Date();
 
@@ -96,10 +109,10 @@ export async function upsertJob(
 
   if (existing) {
     await db.job.update({ where: { fingerprint }, data: mutable });
-    return "updated";
+    return { outcome: "updated", jobId: existing.id };
   }
 
-  await db.job.create({
+  const created = await db.job.create({
     data: {
       ...mutable,
       fingerprint,
@@ -109,8 +122,9 @@ export async function upsertJob(
       atsType: ATS_TO_DB[job.atsType],
       firstSeenAt: now,
     },
+    select: { id: true },
   });
-  return "created";
+  return { outcome: "created", jobId: created.id };
 }
 
 /**

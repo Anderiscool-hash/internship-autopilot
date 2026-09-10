@@ -11,12 +11,15 @@
  *
  *   SCAN_CYCLE_SECONDS   how long to sleep between cycles (default 60)
  *   SCAN_LIMIT           most companies to scan in one cycle (default 25)
+ *   ALERT_WEBHOOK_URL    where to post alerts (optional; Discord-compatible)
  *
  * Pass `--once` to run a single cycle and exit, which is what you want when
  * checking a change rather than actually monitoring boards.
  */
 
 import { db } from "../src/lib/db";
+import { channelsFromEnv } from "../src/lib/alerts/channels";
+import { dispatchAlerts } from "../src/lib/alerts/dispatch";
 import { runScanCycle, type ScanOutcome } from "../src/lib/scan/scanner";
 
 const CYCLE_SECONDS = Number(process.env.SCAN_CYCLE_SECONDS ?? 60);
@@ -79,10 +82,17 @@ async function main(): Promise<void> {
     });
   }
 
+  const channels = channelsFromEnv();
+
   log(
     RUN_ONCE
       ? `scanning once (limit ${LIMIT})`
       : `scanner started — cycle every ${CYCLE_SECONDS}s, up to ${LIMIT} boards per cycle`,
+  );
+  log(
+    channels.length > 1
+      ? `alerts: console + webhook`
+      : `alerts: console only (set ALERT_WEBHOOK_URL to add a webhook)`,
   );
 
   do {
@@ -97,6 +107,23 @@ async function main(): Promise<void> {
           `${summary.created} new, ${summary.updated} refreshed, ` +
           `${summary.closed} closed, ${summary.failed} failed`,
       );
+    }
+
+    // Alerts go out after the whole cycle rather than per board, so one
+    // message covers everything found this minute (spec §28).
+    if (summary.createdJobIds.length > 0) {
+      const alerts = await dispatchAlerts(
+        db,
+        summary.createdJobIds,
+        new Date(),
+        channels,
+      );
+      if (alerts.alerted > 0) {
+        log(`alerted on ${alerts.alerted} new student-role postings`);
+      }
+      for (const failure of alerts.failures) {
+        log(`  ✗ alert channel failed: ${failure}`);
+      }
     }
 
     if (RUN_ONCE || stopping) break;

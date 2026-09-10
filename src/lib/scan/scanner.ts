@@ -46,6 +46,8 @@ export interface ScanOutcome {
   changed: boolean;
   /** Minutes until this company is due again. */
   nextInterval: number;
+  /** Row ids of the jobs this scan discovered — what alerts are sent for. */
+  createdJobIds: string[];
   /** Present only when `ok` is false. */
   error?: string;
 }
@@ -72,6 +74,7 @@ export async function scanCompany(
     closed: 0,
     changed: false,
     nextInterval: company.pollInterval,
+    createdJobIds: [],
   };
 
   try {
@@ -86,13 +89,14 @@ export async function scanCompany(
     const fetchJobs = getAtsJobFetcher(dbAtsToCode(company.atsType));
     const jobs = await fetchJobs(company.atsIdentifier, company.name);
 
-    let created = 0;
+    const createdJobIds: string[] = [];
     let updated = 0;
     for (const job of jobs) {
-      const outcome = await upsertJob(db, company.id, job);
-      if (outcome === "created") created += 1;
+      const { outcome, jobId } = await upsertJob(db, company.id, job);
+      if (outcome === "created") createdJobIds.push(jobId);
       else updated += 1;
     }
+    const created = createdJobIds.length;
 
     const closed = await closeDisappearedJobs(db, company.id, jobs, now);
     const changed = boardChanged(created, closed);
@@ -121,6 +125,7 @@ export async function scanCompany(
       closed,
       changed,
       nextInterval,
+      createdJobIds,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -184,6 +189,8 @@ async function closeDisappearedJobs(
 
 /** Totals for one pass over every company that was due. */
 export interface CycleSummary {
+  /** Every job discovered this cycle, across all boards. */
+  createdJobIds: string[];
   scanned: number;
   fetched: number;
   created: number;
@@ -227,6 +234,7 @@ export async function runScanCycle(
   const due = selectDueCompanies(candidates, now, limit);
 
   const summary: CycleSummary = {
+    createdJobIds: [],
     scanned: 0,
     fetched: 0,
     created: 0,
@@ -243,6 +251,7 @@ export async function runScanCycle(
     summary.created += outcome.created;
     summary.updated += outcome.updated;
     summary.closed += outcome.closed;
+    summary.createdJobIds.push(...outcome.createdJobIds);
     if (!outcome.ok) summary.failed += 1;
     summary.outcomes.push(outcome);
     options.onOutcome?.(outcome);

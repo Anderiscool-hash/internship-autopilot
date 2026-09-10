@@ -92,16 +92,22 @@ exactly where it left off. Polling adapts per spec §5: priority boards every
 5 minutes, recently-active every 12, normal every 30, dormant every 60, with
 exponential backoff (capped at 6 hours) on a board that keeps failing.
 
-Environment variables: `SCAN_CYCLE_SECONDS` (default 60) and `SCAN_LIMIT`
-(default 25 boards per cycle).
+After each cycle it alerts on newly-discovered student-role postings (spec
+§28) — one message per cycle, never the same job twice, with the "sent" record
+kept in the EventLog so a restart cannot re-send it. Set `ALERT_WEBHOOK_URL`
+to a Discord-compatible webhook to receive them; with no URL set they print to
+the scanner's console. Alerts deliberately carry no match percentage: the fit
+engine that would compute one is Phase 3.
+
+Environment variables: `SCAN_CYCLE_SECONDS` (default 60), `SCAN_LIMIT`
+(default 25 boards per cycle), and `ALERT_WEBHOOK_URL` (optional).
 
 ## Status
 
 **Phase 1 complete; Phase 2 nearly.** Built: the schema and migrations, the
 company registry, Greenhouse/Lever/Ashby clients, dedupe, the student-role
 classifier, the continuous scanner with adaptive polling and removal tracking,
-and the job dashboard. Not built: internship alerts (rest of Phase 2), and
-everything from Phase 3 on — eligibility, fit scoring, resumes, and applying.
+the job dashboard, and internship alerts. Not built: everything from Phase 3 on — eligibility, fit scoring, resumes, and applying.
 See §40 of the plan for the roadmap and §41 for what counts as a usable V1.
 
 ## Working agreement for this repo
