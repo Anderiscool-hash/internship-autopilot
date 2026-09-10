@@ -52,12 +52,12 @@ the test suite needs no database and CI does not run one.
 | §11 Hard eligibility | pass / fail / unknown per check | `src/lib/eligibility/engine.ts` |
 | §12 Job fit | Seven weighted components | `src/lib/fit/score.ts` |
 | §16 Answer bank | Reusable answers, conservative matching | `src/lib/answers/`, `src/app/answers/` |
+| §17 Application confidence | Weighted, hard-zero on CAPTCHA | `src/lib/apply/confidence.ts` |
 | §18 Auto-apply rules | auto / review / blocked decision | `src/lib/autoapply/rules.ts`, `src/app/settings/` |
+| §19 Preflight | Reads the real form, never submits | `scripts/preflight.ts`, `src/lib/apply/` |
 | §23 Workflow state machine | Legal transitions, resumability | `src/lib/applications/machine.ts` |
 | §24 Application tracker | Board, outcomes, notes | `src/app/applications/` |
 | §28 Internship alerts | Batched, deduped via EventLog | `src/lib/alerts/` |
-| §17 Application confidence | Weighted, hard-zero on CAPTCHA | `src/lib/apply/confidence.ts` |
-| §19 Preflight | Reads the real form, never submits | `scripts/preflight.ts`, `src/lib/apply/` |
 | §29 Analytics | Rates that refuse small samples | `src/lib/analytics/` |
 | §40 Job dashboard | List, filters, screening | `src/app/jobs/`, `src/lib/jobs/query.ts` |
 
