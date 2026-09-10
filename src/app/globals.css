@@ -724,3 +724,141 @@ table.fit .points {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* ---------------------------------------------------------------------------
+   Application tracker (spec §24).
+   --------------------------------------------------------------------------- */
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+  align-items: start;
+  margin: 1.5rem 0 2.5rem;
+}
+
+.board-column h2 {
+  margin: 0 0 0.6rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.board-empty {
+  margin: 0;
+  padding: 1rem 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 0.5rem;
+}
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  margin-bottom: 0.6rem;
+  background: var(--bg);
+}
+
+.card-sub {
+  margin: 0.2rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.card-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0;
+}
+
+.card-status .badge {
+  margin-left: 0;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.badge-outcome {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.card-fit {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+}
+
+.small-button {
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+}
+
+.small-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.card details {
+  margin-top: 0.6rem;
+  font-size: 0.8125rem;
+}
+
+.card summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.card-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: flex-start;
+  margin: 0.6rem 0;
+}
+
+.track-controls {
+  display: flex;
+  gap: 0.6rem;
+  margin: 1.5rem 0;
+}
+
+.track-controls button {
+  font: inherit;
+  font-size: 0.9375rem;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 0.375rem;
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+}
+
+.track-controls .secondary-button {
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.status-group {
+  display: block;
+  margin-bottom: 0.2rem;
+}

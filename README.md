@@ -71,6 +71,12 @@ npm test               # unit tests (no database needed)
 npm run typecheck      # tsc --noEmit
 ```
 
+`/applications` is the tracker (spec §24): jobs you have saved, grouped into
+Saved / Preparing / Needs you / Applied / Closed, with outcomes and notes. The
+workflow states behind those columns are spec §23's, and the state machine
+refuses illegal moves — though you can always report what actually happened,
+since "I applied to this myself" is a fact, not a step in the bot's plan.
+
 `/profile` is where you enter who you are and what is true about you — the
 Truth Ledger (spec §3) is the only source of claims the AI is ever allowed to
 make on your behalf, so nothing downstream works until it has something in it.
@@ -120,8 +126,10 @@ company registry, Greenhouse/Lever/Ashby clients, dedupe, the student-role
 classifier, the continuous scanner with adaptive polling and removal tracking,
 the job dashboard, internship alerts, the profile + Truth Ledger screen, and
 the rule-based half of Phase 3 — requirement extraction, the hard eligibility
-engine, and the fit engine, all shown on each job's detail page. Not built:
-resume coverage (§13) and everything from Phase 4 on — eligibility, fit scoring, resumes, and applying.
+engine, and the fit engine, all shown on each job's detail page; and the
+application tracker with its §23 state machine. Not built: resume coverage
+(§13), the document builders (Phase 4), and the Playwright apply flow
+(Phase 5) — eligibility, fit scoring, resumes, and applying.
 See §40 of the plan for the roadmap and §41 for what counts as a usable V1.
 
 ## Working agreement for this repo

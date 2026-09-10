@@ -21,6 +21,9 @@ import { readStoredRequirements } from "@/lib/eligibility/stored";
 import { formatAge, formatEnum, formatLocation, formatSalary } from "../format";
 import { toEligibilityProfile, toFitProfile } from "@/lib/fit/profile";
 import { scoreFit } from "@/lib/fit/score";
+import { findApplicationForJob } from "@/lib/applications/store";
+import { formatEnum as formatStatus } from "../format";
+import { TrackControls } from "./track-controls";
 import { EligibilityTable } from "./eligibility-table";
 import { FitBreakdown } from "./fit-breakdown";
 
@@ -28,10 +31,13 @@ export const dynamic = "force-dynamic";
 
 interface JobPageProps {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
-export default async function JobDetailPage({ params }: JobPageProps) {
+export default async function JobDetailPage({ params, searchParams }: JobPageProps) {
   const { id } = await params;
+  const query = await searchParams;
+  const message = typeof query.error === "string" ? query.error : null;
 
   const job = await db.job.findUnique({
     where: { id },
@@ -52,6 +58,7 @@ export default async function JobDetailPage({ params }: JobPageProps) {
     ? checkEligibility(toEligibilityProfile(profile), requirements)
     : null;
 
+  const tracked = profile ? await findApplicationForJob(db, profile.id, job.id) : null;
   const classification = classifyStudentRole(job.title);
   const description = toPlainText(job.description);
 
@@ -139,6 +146,15 @@ export default async function JobDetailPage({ params }: JobPageProps) {
       <EligibilityTable
         eligibility={eligibility}
         requirements={requirements}
+        hasProfile={profile !== null}
+      />
+
+      {message ? <div className="notice notice-error">{message}</div> : null}
+
+      <TrackControls
+        jobId={job.id}
+        fitScore={fit?.score ?? null}
+        trackedStatus={tracked ? formatStatus(tracked.status) : null}
         hasProfile={profile !== null}
       />
 

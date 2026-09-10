@@ -1,0 +1,117 @@
+/**
+ * One application on the tracker board (spec §24).
+ *
+ * The buttons offered are computed from the state machine rather than
+ * hard-coded per column, so a move that appears on screen is always a move the
+ * machine will accept. Anything else would mean showing people buttons that
+ * fail when pressed.
+ */
+
+import { ApplicationOutcome, ApplicationStatus } from "@prisma/client";
+import { allowedTransitions } from "@/lib/applications/machine";
+import type { ApplicationWithJob } from "@/lib/applications/store";
+import { formatEnum } from "../jobs/format";
+import { notesAction, outcomeAction, transitionAction, untrackAction } from "./actions";
+
+/**
+ * The moves worth putting on a card, in the order a person would want them.
+ *
+ * The machine allows more than this — every exception state is reachable from
+ * everywhere — but a tracker card offering "CAPTCHA" as a button would be
+ * noise. Those states are set by the apply worker, not by hand.
+ */
+const OFFERED: { status: ApplicationStatus; label: string }[] = [
+  { status: ApplicationStatus.SUBMITTED_PENDING_CONFIRMATION, label: "Applied" },
+  { status: ApplicationStatus.CONFIRMED, label: "Confirmed" },
+  { status: ApplicationStatus.QUEUED, label: "Queue" },
+  { status: ApplicationStatus.SKIPPED, label: "Skip" },
+  { status: ApplicationStatus.DISCOVERED, label: "Reopen" },
+  { status: ApplicationStatus.JOB_CLOSED, label: "Closed" },
+];
+
+export function ApplicationCard({ application }: { application: ApplicationWithJob }) {
+  const allowed = new Set(allowedTransitions(application.status));
+  const moves = OFFERED.filter((move) => allowed.has(move.status));
+
+  return (
+    <article className="card">
+      <a className="job-title" href={`/jobs/${application.job.id}`}>
+        {application.job.title}
+      </a>
+      <p className="card-sub">
+        {application.job.company.name}
+        {application.job.location ? ` · ${application.job.location}` : ""}
+      </p>
+
+      <p className="card-status">
+        <span className="badge">{formatEnum(application.status)}</span>
+        {application.outcome ? (
+          <span className="badge badge-outcome">{formatEnum(application.outcome)}</span>
+        ) : null}
+        {application.fitScore !== null ? (
+          <span className="card-fit">{application.fitScore}% fit</span>
+        ) : null}
+      </p>
+
+      {application.appliedAt ? (
+        <p className="card-sub">
+          Applied {application.appliedAt.toISOString().slice(0, 10)}
+        </p>
+      ) : null}
+
+      <div className="card-actions">
+        {moves.map((move) => (
+          <form key={move.status} action={transitionAction}>
+            <input type="hidden" name="applicationId" value={application.id} />
+            <input type="hidden" name="to" value={move.status} />
+            <button type="submit" className="small-button">
+              {move.label}
+            </button>
+          </form>
+        ))}
+      </div>
+
+      {/* Details are collapsed: a board of twenty cards should stay scannable,
+          and outcome and notes are things you go looking for. */}
+      <details>
+        <summary>Outcome &amp; notes</summary>
+
+        <form className="card-form" action={outcomeAction}>
+          <input type="hidden" name="applicationId" value={application.id} />
+          <label className="field">
+            <span>Outcome</span>
+            <select name="outcome" defaultValue={application.outcome ?? ""}>
+              <option value="">None yet</option>
+              {Object.values(ApplicationOutcome).map((outcome) => (
+                <option key={outcome} value={outcome}>
+                  {formatEnum(outcome)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="submit" className="small-button">
+            Save outcome
+          </button>
+        </form>
+
+        <form className="card-form" action={notesAction}>
+          <input type="hidden" name="applicationId" value={application.id} />
+          <label className="field">
+            <span>Notes</span>
+            <textarea name="notes" rows={3} defaultValue={application.notes ?? ""} />
+          </label>
+          <button type="submit" className="small-button">
+            Save notes
+          </button>
+        </form>
+
+        <form action={untrackAction}>
+          <input type="hidden" name="applicationId" value={application.id} />
+          <button type="submit" className="link-button">
+            Remove from tracker
+          </button>
+        </form>
+      </details>
+    </article>
+  );
+}
