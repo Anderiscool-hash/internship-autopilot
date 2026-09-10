@@ -13,9 +13,11 @@
 import { db } from "@/lib/db";
 import {
   buildJobsHref,
+  ELIGIBILITY_FILTERS,
   parseJobFilters,
   PAGE_SIZE,
   VERDICTS,
+  type EligibilityFilter,
   type JobFilters,
   type RawSearchParams,
 } from "@/lib/jobs/filters";
@@ -76,7 +78,17 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
     );
   }
 
-  const { rows, counts, matching, page, pageCount, truncated, verdicts } = result;
+  const {
+    rows,
+    counts,
+    matching,
+    page,
+    pageCount,
+    truncated,
+    verdicts,
+    eligibility,
+    eligibilityCounts,
+  } = result;
   const total = counts.keep + counts.ambiguous + counts.reject;
   const firstOnPage = matching === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const lastOnPage = Math.min(page * PAGE_SIZE, matching);
@@ -104,6 +116,35 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
         ))}
       </nav>
 
+      {eligibilityCounts === null ? (
+        <p className="note">
+          No eligibility check yet — <a href="/profile">fill in your profile</a> and
+          these jobs can be screened against spec §11&rsquo;s hard requirements.
+        </p>
+      ) : (
+        <nav className="chips" aria-label="Filter by eligibility">
+          <EligibilityChip
+            filters={filters}
+            eligibility={null}
+            label="Any eligibility"
+            count={
+              eligibilityCounts.eligible +
+              eligibilityCounts.unconfirmed +
+              eligibilityCounts.ineligible
+            }
+          />
+          {ELIGIBILITY_FILTERS.map((verdict) => (
+            <EligibilityChip
+              key={verdict}
+              filters={filters}
+              eligibility={verdict}
+              label={verdict}
+              count={eligibilityCounts[verdict]}
+            />
+          ))}
+        </nav>
+      )}
+
       {truncated ? (
         <div className="notice">
           Showing the {MAX_SCAN.toLocaleString()} most recently discovered jobs
@@ -111,7 +152,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
         </div>
       ) : null}
 
-      <JobTable rows={rows} verdicts={verdicts} now={now} />
+      <JobTable rows={rows} verdicts={verdicts} eligibility={eligibility} now={now} />
 
       <div className="pager">
         <span>
@@ -136,6 +177,30 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
         </span>
       </div>
     </main>
+  );
+}
+
+/** One eligibility filter chip (spec §11). */
+function EligibilityChip({
+  filters,
+  eligibility,
+  label,
+  count,
+}: {
+  filters: JobFilters;
+  eligibility: EligibilityFilter | null;
+  label: string;
+  count: number;
+}) {
+  const active = filters.eligibility === eligibility;
+  return (
+    <a
+      className={`chip${active ? " chip-active" : ""}`}
+      href={buildJobsHref(filters, { eligibility })}
+      aria-current={active ? "true" : undefined}
+    >
+      {label} <span className="chip-count">{count.toLocaleString()}</span>
+    </a>
   );
 }
 

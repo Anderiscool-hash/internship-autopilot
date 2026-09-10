@@ -21,6 +21,10 @@ import {
 /** How many jobs one page of the dashboard shows. */
 export const PAGE_SIZE = 50;
 
+/** The eligibility verdicts a job can carry, for the dashboard filter (spec §11). */
+export const ELIGIBILITY_FILTERS = ["eligible", "unconfirmed", "ineligible"] as const;
+export type EligibilityFilter = (typeof ELIGIBILITY_FILTERS)[number];
+
 /** The three verdicts the student-role classifier (spec §9) can return. */
 export const VERDICTS = ["keep", "ambiguous", "reject"] as const;
 export type Verdict = (typeof VERDICTS)[number];
@@ -55,6 +59,14 @@ export interface JobFilters {
    * job vanishing is sometimes a board glitch rather than a real closure.
    */
   includeClosed: boolean;
+  /**
+   * Only jobs with this hard-eligibility verdict (spec §11).
+   *
+   * Computed in memory against the stored requirements and the candidate
+   * profile, so like `verdict` it can never be part of the SQL query. Has no
+   * effect at all until a profile exists — there is nothing to check against.
+   */
+  eligibility: EligibilityFilter | null;
   /** 1-based page number. */
   page: number;
 }
@@ -112,6 +124,7 @@ export function parseJobFilters(raw: RawSearchParams): JobFilters {
     // A checkbox submits "on"; the pagination links write "1". Anything else
     // (including the parameter being absent) means the box was unchecked.
     includeClosed: ["1", "on", "true"].includes(firstValue(raw, "closed") ?? ""),
+    eligibility: oneOf(firstValue(raw, "eligibility"), ELIGIBILITY_FILTERS),
     page,
   };
 }
@@ -188,6 +201,7 @@ export function buildJobsHref(
   if (merged.withinDays !== null) params.set("days", String(merged.withinDays));
   if (merged.verdict) params.set("verdict", merged.verdict);
   if (merged.includeClosed) params.set("closed", "1");
+  if (merged.eligibility) params.set("eligibility", merged.eligibility);
   if (merged.page > 1) params.set("page", String(merged.page));
 
   const query = params.toString();

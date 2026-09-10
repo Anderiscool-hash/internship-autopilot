@@ -93,9 +93,12 @@ export function FilterBar({ filters, companies }: FilterBarProps) {
         <span>Include closed</span>
       </label>
 
-      {/* Carries the chip selection through a form submit. */}
+      {/* Carries the chip selections through a form submit. */}
       {filters.verdict ? (
         <input type="hidden" name="verdict" value={filters.verdict} />
+      ) : null}
+      {filters.eligibility ? (
+        <input type="hidden" name="eligibility" value={filters.eligibility} />
       ) : null}
 
       <div className="filter-actions">

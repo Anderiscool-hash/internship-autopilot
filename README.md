@@ -77,7 +77,9 @@ make on your behalf, so nothing downstream works until it has something in it.
 
 The dashboard lives at `/jobs`: every discovered posting, newest first,
 filterable by title, company, ATS, remote type, how recently it was first seen,
-and the student-role classifier's verdict. Closed postings are hidden unless
+and the student-role classifier's verdict. Once your profile exists it also
+screens every job against spec §11's hard requirements, so you can filter down
+to the ones you are actually eligible for. Closed postings are hidden unless
 you tick "Include closed".
 
 ## Running the scanner
@@ -85,6 +87,7 @@ you tick "Include closed".
 ```bash
 npm run scan           # continuous, 24/7 (spec §5)
 npm run eligibility:report  # how often postings state a checkable requirement
+npm run extract:backfill    # extract requirements for older rows (--all to redo)
 npm run scan -- --once # a single cycle, then exit
 npm run discover       # scan every active board now, ignoring the schedule
 ```

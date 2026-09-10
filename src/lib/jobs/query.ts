@@ -17,8 +17,11 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { AtsType as DbAtsType, JobStatus, RemoteType as DbRemoteType } from "@prisma/client";
-import { buildJobWhere, type JobFilters } from "./filters";
+import { buildJobWhere, type EligibilityFilter, type JobFilters } from "./filters";
 import { buildJobPage, orderByIds, MAX_SCAN, type JobPage } from "./list";
+import { getProfile } from "../candidate/store";
+import { checkEligibility, type EligibilityProfile } from "../eligibility/engine";
+import { readStoredRequirements } from "../eligibility/stored";
 
 /** One row as the dashboard table displays it. */
 export interface JobListRow {
@@ -39,9 +42,25 @@ export interface JobListRow {
   status: JobStatus;
 }
 
+/** How many scanned jobs fell into each eligibility verdict. */
+export interface EligibilityCounts {
+  eligible: number;
+  unconfirmed: number;
+  ineligible: number;
+}
+
 /** A page of the dashboard: the rows themselves plus the counts around them. */
 export interface JobListResult extends Omit<JobPage, "ids"> {
   rows: JobListRow[];
+  /**
+   * Eligibility verdict per scanned job, or null when no profile exists yet.
+   *
+   * Null is the honest answer before the profile is filled in: with nothing to
+   * check against, every job is neither eligible nor ineligible, and showing a
+   * verdict anyway would be inventing one.
+   */
+  eligibility: Map<string, EligibilityFilter> | null;
+  eligibilityCounts: EligibilityCounts | null;
 }
 
 /**
@@ -66,18 +85,29 @@ export async function listJobs(
   // Take one extra row past the cap purely to detect that we hit it.
   const scanned = await db.job.findMany({
     where,
-    select: { id: true, title: true },
+    select: { id: true, title: true, requirements: true },
     orderBy,
     take: MAX_SCAN + 1,
   });
 
   const truncated = scanned.length > MAX_SCAN;
-  const page = buildJobPage(
-    truncated ? scanned.slice(0, MAX_SCAN) : scanned,
-    filters.verdict,
-    filters.page,
-    { truncated },
-  );
+  const capped = truncated ? scanned.slice(0, MAX_SCAN) : scanned;
+
+  // Hard eligibility (spec §11) is computed here, in memory, for the same
+  // reason the classifier verdict is: it depends on the candidate profile and
+  // on requirements parsed out of JSON, neither of which SQL can express.
+  // The requirements themselves were extracted at ingest, so this is a cheap
+  // comparison per row rather than a re-parse of every description.
+  const profile = await loadEligibilityProfile(db);
+  const eligibility = profile ? scoreEligibility(capped, profile) : null;
+  const eligibilityCounts = eligibility ? countEligibility(eligibility) : null;
+
+  const filtered =
+    eligibility && filters.eligibility
+      ? capped.filter((job) => eligibility.get(job.id) === filters.eligibility)
+      : capped;
+
+  const page = buildJobPage(filtered, filters.verdict, filters.page, { truncated });
 
   const rows =
     page.ids.length === 0
@@ -107,7 +137,64 @@ export async function listJobs(
   }));
 
   const { ids: _ids, ...pageMeta } = page;
-  return { ...pageMeta, rows: orderByIds(flattened, page.ids) };
+  return {
+    ...pageMeta,
+    rows: orderByIds(flattened, page.ids),
+    eligibility,
+    eligibilityCounts,
+  };
+}
+
+/** The candidate's eligibility-critical fields, or null if there is no profile. */
+async function loadEligibilityProfile(
+  db: PrismaClient,
+): Promise<EligibilityProfile | null> {
+  const profile = await getProfile(db);
+  if (!profile) return null;
+
+  return {
+    degree: profile.degree,
+    graduationDate: profile.graduationDate,
+    needsSponsorship: profile.needsSponsorship,
+    citizenship: profile.citizenship,
+    workAuthorization: profile.workAuthorization,
+    certifications: profile.certifications,
+  };
+}
+
+/**
+ * Work out the eligibility verdict for every scanned job.
+ *
+ * A job whose requirements column was never populated comes back
+ * "unconfirmed", not "eligible" — "we have not looked at this posting" and
+ * "this posting asks for nothing" are different claims, and only one of them
+ * is true.
+ */
+function scoreEligibility(
+  jobs: { id: string; requirements: unknown }[],
+  profile: EligibilityProfile,
+): Map<string, EligibilityFilter> {
+  const verdicts = new Map<string, EligibilityFilter>();
+
+  for (const job of jobs) {
+    const requirements = readStoredRequirements(job.requirements);
+    if (requirements === null) {
+      verdicts.set(job.id, "unconfirmed");
+      continue;
+    }
+    verdicts.set(job.id, checkEligibility(profile, requirements).verdict);
+  }
+
+  return verdicts;
+}
+
+/** Tally the verdicts, for the dashboard's eligibility chips. */
+function countEligibility(
+  verdicts: Map<string, EligibilityFilter>,
+): EligibilityCounts {
+  const counts: EligibilityCounts = { eligible: 0, unconfirmed: 0, ineligible: 0 };
+  for (const verdict of verdicts.values()) counts[verdict] += 1;
+  return counts;
 }
 
 /** A company that has at least one discovered job, for the filter dropdown. */

@@ -8,10 +8,11 @@
  * mistyped) into every caller that wants to store a job.
  */
 
-import { AtsType as DbAtsType, RemoteType as DbRemoteType } from "@prisma/client";
+import { AtsType as DbAtsType, Prisma, RemoteType as DbRemoteType } from "@prisma/client";
 import type { PrismaClient } from "@prisma/client";
 import type { AtsType, CanonicalJob, RemoteType } from "./types";
 import { jobFingerprint } from "./fingerprint";
+import { extractRequirements } from "../eligibility/extract";
 
 /**
  * Translate the code-side ATS name into the database enum value.
@@ -86,6 +87,14 @@ export async function upsertJob(
   const fingerprint = jobFingerprint(job.companyName, job.sourceJobId);
   const now = new Date();
 
+  // Hard requirements are read out of the description here, at ingest, rather
+  // than when a page renders (spec §10). It is a handful of regexes over text
+  // we already have in memory, and doing it now is what lets the dashboard
+  // filter thousands of jobs on eligibility without re-parsing thousands of
+  // descriptions per request. Re-run on every sighting because employers do
+  // edit live postings, and a stale requirement is a wrong one.
+  const requirements = extractRequirements(job.description);
+
   // Fields that should be refreshed every time we re-see the posting, because
   // employers do edit live listings (title tweaks, added locations, salary
   // bands appearing later).
@@ -100,6 +109,8 @@ export async function upsertJob(
     canonicalUrl: job.canonicalUrl,
     sourcePostedAt: job.sourcePostedAt,
     lastSeenAt: now,
+    requirements: requirements as unknown as Prisma.InputJsonValue,
+    requirementsExtractedAt: now,
   };
 
   const existing = await db.job.findUnique({

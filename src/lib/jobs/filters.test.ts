@@ -20,6 +20,7 @@ const EMPTY: JobFilters = {
   withinDays: null,
   verdict: null,
   includeClosed: false,
+  eligibility: null,
   page: 1,
 };
 
@@ -47,6 +48,7 @@ describe("parseJobFilters", () => {
       withinDays: 7,
       verdict: "keep",
       includeClosed: false,
+      eligibility: null,
       page: 3,
     });
   });
@@ -159,6 +161,14 @@ describe("buildJobsHref", () => {
     expect(parseJobFilters({ closed: "nonsense" }).includeClosed).toBe(false);
     expect(parseJobFilters({}).includeClosed).toBe(false);
     expect(buildJobsHref({ ...EMPTY, includeClosed: true })).toBe("/jobs?closed=1");
+  });
+
+  it("carries the eligibility filter, and drops a bogus one", () => {
+    expect(parseJobFilters({ eligibility: "eligible" }).eligibility).toBe("eligible");
+    expect(parseJobFilters({ eligibility: "banana" }).eligibility).toBeNull();
+    expect(buildJobsHref({ ...EMPTY, eligibility: "ineligible" })).toBe(
+      "/jobs?eligibility=ineligible",
+    );
   });
 
   it("escapes values that need it", () => {

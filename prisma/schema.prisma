@@ -566,6 +566,23 @@ model Job {
 
   status JobStatus @default(OPEN)
 
+  /// Hard requirements read out of `description` by rule (spec §10), stored
+  /// as the JobRequirements shape from src/lib/eligibility/requirements.ts.
+  /// Extracted once when the posting is discovered (and again when its
+  /// description changes) rather than on every page render, because the
+  /// dashboard needs to filter thousands of jobs on eligibility and
+  /// re-parsing thousands of descriptions per request would not survive
+  /// contact with a real board.
+  ///
+  /// Null means "not extracted yet", NOT "no requirements" — a job discovered
+  /// before this column existed, or one whose extraction has not run. The
+  /// difference matters: "we have not looked" must never be shown to the
+  /// reader as "this posting asks for nothing".
+  requirements           Json?
+  /// When `requirements` was last computed. Lets a backfill find rows that
+  /// predate an improvement to the extractor and re-run just those.
+  requirementsExtractedAt DateTime?
+
   applications Application[]
 
   // Extra dedupe safety net beyond the fingerprint above (spec §8 also

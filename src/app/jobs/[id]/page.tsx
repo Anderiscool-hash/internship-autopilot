@@ -17,6 +17,7 @@ import { getProfile } from "@/lib/candidate/store";
 import { classifyStudentRole } from "@/lib/jobs/classify";
 import { checkEligibility } from "@/lib/eligibility/engine";
 import { extractRequirements, toPlainText } from "@/lib/eligibility/extract";
+import { readStoredRequirements } from "@/lib/eligibility/stored";
 import { formatAge, formatEnum, formatLocation, formatSalary } from "../format";
 import { EligibilityTable } from "./eligibility-table";
 
@@ -38,7 +39,12 @@ export default async function JobDetailPage({ params }: JobPageProps) {
   const profile = await getProfile(db);
   const now = new Date();
 
-  const requirements = extractRequirements(job.description);
+  // Prefer what the scanner extracted at ingest; fall back to extracting now
+  // for a posting stored before that column existed and not yet backfilled.
+  // Both paths run the same extractor, so the answer is identical either way —
+  // this only decides whether the work happens now or happened earlier.
+  const requirements =
+    readStoredRequirements(job.requirements) ?? extractRequirements(job.description);
   const eligibility = profile
     ? checkEligibility(
         {

@@ -657,3 +657,18 @@ table.checks .mark {
   line-height: 1.7;
   max-width: 52rem;
 }
+
+.badge-elig-eligible {
+  color: var(--keep);
+  background: var(--keep-bg);
+}
+
+.badge-elig-unconfirmed {
+  color: var(--ambiguous);
+  background: var(--ambiguous-bg);
+}
+
+.badge-elig-ineligible {
+  color: var(--reject);
+  background: var(--reject-bg);
+}

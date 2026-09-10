@@ -13,6 +13,7 @@
  */
 
 import { JobStatus } from "@prisma/client";
+import type { EligibilityFilter } from "@/lib/jobs/filters";
 import type { ClassifiedJob } from "@/lib/jobs/list";
 import type { JobListRow } from "@/lib/jobs/query";
 import { formatAge, formatEnum, formatLocation, formatSalary } from "./format";
@@ -20,10 +21,19 @@ import { formatAge, formatEnum, formatLocation, formatSalary } from "./format";
 interface JobTableProps {
   rows: JobListRow[];
   verdicts: Map<string, ClassifiedJob>;
+  /** Hard-eligibility verdicts, or null when there is no profile to check against. */
+  eligibility: Map<string, EligibilityFilter> | null;
   now: Date;
 }
 
-export function JobTable({ rows, verdicts, now }: JobTableProps) {
+/** What each eligibility verdict should say in a badge, and why. */
+const ELIGIBILITY_TITLES: Record<EligibilityFilter, string> = {
+  eligible: "Nothing this posting states rules you out.",
+  unconfirmed: "Some requirement was stated by neither the posting nor your profile.",
+  ineligible: "This posting states a hard requirement your profile contradicts.",
+};
+
+export function JobTable({ rows, verdicts, eligibility, now }: JobTableProps) {
   if (rows.length === 0) {
     return (
       <p className="empty">
@@ -51,6 +61,7 @@ export function JobTable({ rows, verdicts, now }: JobTableProps) {
         <tbody>
           {rows.map((job) => {
             const classified = verdicts.get(job.id);
+            const eligible = eligibility?.get(job.id);
             return (
               <tr key={job.id}>
                 <td>
@@ -71,6 +82,14 @@ export function JobTable({ rows, verdicts, now }: JobTableProps) {
                       title={classified.reason}
                     >
                       {classified.verdict}
+                    </span>
+                  ) : null}
+                  {eligible ? (
+                    <span
+                      className={`badge badge-elig-${eligible}`}
+                      title={ELIGIBILITY_TITLES[eligible]}
+                    >
+                      {eligible}
                     </span>
                   ) : null}
                   <a
