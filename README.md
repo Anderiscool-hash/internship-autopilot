@@ -81,6 +81,11 @@ since "I applied to this myself" is a fact, not a step in the bot's plan.
 every form asks, answered once. A question with no answer here is what makes an
 apply run stop and ask you rather than invent something.
 
+`/analytics` answers "how is this going?" from the tracker (spec §29) —
+response, interview and offer rates, broken down by company and ATS. A rate
+computed from fewer than five applications is shown as a raw count instead,
+because a percentage from three applications reads as a fact and is not one.
+
 `/settings` holds the auto-apply rules (spec §18) — fit and confidence floors,
 posting-age and per-day limits, and per-ATS authority. Nothing is enabled by
 default and no apply worker exists yet, so nothing is ever submitted.
@@ -135,8 +140,8 @@ classifier, the continuous scanner with adaptive polling and removal tracking,
 the job dashboard, internship alerts, the profile + Truth Ledger screen, and
 the rule-based half of Phase 3 — requirement extraction, the hard eligibility
 engine, and the fit engine, all shown on each job's detail page; and the
-application tracker with its §23 state machine, the answer bank (§16), and the auto-apply
-rules engine (§18). Not built: resume coverage
+application tracker with its §23 state machine, the answer bank (§16), the auto-apply
+rules engine (§18), and analytics (§29). Not built: resume coverage
 (§13), the document builders (Phase 4), and the Playwright apply flow
 (Phase 5) — eligibility, fit scoring, resumes, and applying.
 See §40 of the plan for the roadmap and §41 for what counts as a usable V1.

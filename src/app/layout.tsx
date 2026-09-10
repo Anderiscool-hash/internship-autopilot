@@ -24,6 +24,7 @@ export default function RootLayout({
           <a href="/applications">Applications</a>
           <a href="/answers">Answers</a>
           <a href="/profile">Profile</a>
+          <a href="/analytics">Analytics</a>
           <a href="/settings">Auto-apply</a>
         </nav>
         {children}

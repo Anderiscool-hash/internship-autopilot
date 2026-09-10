@@ -11,6 +11,7 @@
 import {
   ApplicationStatus,
   EventEntityType,
+  type AtsType,
   type Application,
   type ApplicationOutcome,
   type PrismaClient,
@@ -24,6 +25,7 @@ export type ApplicationWithJob = Application & {
     title: string;
     location: string | null;
     canonicalUrl: string;
+    atsType: AtsType;
     company: { name: string };
   };
 };
@@ -43,6 +45,7 @@ export async function listApplications(
           title: true,
           location: true,
           canonicalUrl: true,
+          atsType: true,
           company: { select: { name: true } },
         },
       },

@@ -877,3 +877,9 @@ table.fit .points {
 .answer-row + form {
   margin-left: 1rem;
 }
+
+.rate-unknown {
+  color: var(--muted);
+  font-weight: 400;
+  cursor: help;
+}
