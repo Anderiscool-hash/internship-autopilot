@@ -54,12 +54,7 @@ export function JobTable({ rows, verdicts, now }: JobTableProps) {
             return (
               <tr key={job.id}>
                 <td>
-                  <a
-                    className="job-title"
-                    href={job.canonicalUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
+                  <a className="job-title" href={`/jobs/${job.id}`}>
                     {job.title}
                   </a>
                   {job.status !== JobStatus.OPEN ? (
@@ -78,6 +73,15 @@ export function JobTable({ rows, verdicts, now }: JobTableProps) {
                       {classified.verdict}
                     </span>
                   ) : null}
+                  <a
+                    className="source-link"
+                    href={job.canonicalUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Open the employer's posting"
+                  >
+                    ↗
+                  </a>
                 </td>
                 <td>{job.companyName}</td>
                 <td>{formatLocation(job.location)}</td>

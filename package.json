@@ -26,7 +26,8 @@
     "discover": "tsx scripts/discover.ts",
     "classifier:report": "tsx scripts/classifier-report.ts",
     "//scan": "Run the continuous scanner (spec §5). Add --once for a single cycle.",
-    "scan": "tsx scripts/scan.ts"
+    "scan": "tsx scripts/scan.ts",
+    "eligibility:report": "tsx scripts/eligibility-report.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

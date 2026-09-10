@@ -530,3 +530,130 @@ ul.ledger li:first-child {
 .link-button:hover {
   color: var(--reject);
 }
+
+/* ---------------------------------------------------------------------------
+   Job detail + eligibility table.
+   --------------------------------------------------------------------------- */
+
+.crumb {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+}
+
+.crumb a,
+.apply-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.source-link {
+  margin-left: 0.4rem;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.8125rem;
+}
+
+.source-link:hover {
+  color: var(--accent);
+}
+
+dl.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin: 1.5rem 0;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+}
+
+dl.facts dt {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+dl.facts dd {
+  margin: 0.2rem 0 0;
+  font-size: 0.9375rem;
+}
+
+.requirements {
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+table.checks {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+table.checks th {
+  text-align: left;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 0.5rem 0.75rem;
+}
+
+table.checks td {
+  padding: 0.5rem 0.75rem;
+  color: var(--muted);
+}
+
+table.checks tr + tr th,
+table.checks tr + tr td {
+  border-top: 1px solid var(--border);
+}
+
+table.checks .mark {
+  font-weight: 700;
+  text-align: center;
+  width: 2rem;
+}
+
+.check-pass .mark {
+  color: var(--keep);
+}
+
+.check-fail .mark {
+  color: var(--reject);
+}
+
+.check-unknown .mark {
+  color: var(--ambiguous);
+}
+
+.verdict {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.6rem 0.9rem;
+  border-radius: 0.375rem;
+  display: inline-block;
+}
+
+.verdict-eligible {
+  color: var(--keep);
+  background: var(--keep-bg);
+}
+
+.verdict-ineligible {
+  color: var(--reject);
+  background: var(--reject-bg);
+}
+
+.verdict-unconfirmed {
+  color: var(--ambiguous);
+  background: var(--ambiguous-bg);
+}
+
+.description {
+  white-space: pre-wrap;
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  max-width: 52rem;
+}

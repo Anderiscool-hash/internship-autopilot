@@ -84,6 +84,7 @@ you tick "Include closed".
 
 ```bash
 npm run scan           # continuous, 24/7 (spec §5)
+npm run eligibility:report  # how often postings state a checkable requirement
 npm run scan -- --once # a single cycle, then exit
 npm run discover       # scan every active board now, ignoring the schedule
 ```
@@ -111,8 +112,10 @@ Environment variables: `SCAN_CYCLE_SECONDS` (default 60), `SCAN_LIMIT`
 **Phase 1 complete; Phase 2 nearly.** Built: the schema and migrations, the
 company registry, Greenhouse/Lever/Ashby clients, dedupe, the student-role
 classifier, the continuous scanner with adaptive polling and removal tracking,
-the job dashboard, internship alerts, and the profile + Truth Ledger screen.
-Not built: everything from Phase 3 on — eligibility, fit scoring, resumes, and applying.
+the job dashboard, internship alerts, the profile + Truth Ledger screen, and
+the rule-based half of Phase 3 — requirement extraction and the hard
+eligibility engine, shown on each job's detail page. Not built: the AI half of
+Phase 3 (skills, role category, fit scoring), and everything from Phase 4 on — eligibility, fit scoring, resumes, and applying.
 See §40 of the plan for the roadmap and §41 for what counts as a usable V1.
 
 ## Working agreement for this repo
