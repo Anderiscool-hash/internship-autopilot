@@ -15,8 +15,16 @@ describe("formatSalary", () => {
     expect(formatSalary(null, null, "USD")).toBe(NOT_STATED);
   });
 
-  it("formats a range with thousands separators", () => {
-    expect(formatSalary(80000, 120000, "USD")).toBe("80,000–120,000 USD");
+  it("abbreviates salaries so a range fits the dashboard column", () => {
+    // The full form truncated mid-number in the table, which reads as a
+    // complete figure and is not one.
+    expect(formatSalary(80000, 120000, "USD")).toBe("80k–120k USD");
+    expect(formatSalary(137500, 210000, "USD")).toBe("137.5k–210k USD");
+  });
+
+  it("leaves hourly and monthly figures exact", () => {
+    expect(formatSalary(45, 60, "USD")).toBe("45–60 USD");
+    expect(formatSalary(4500, null, "USD")).toBe("4,500+ USD");
   });
 
   it("collapses a range whose ends are equal", () => {
@@ -24,14 +32,14 @@ describe("formatSalary", () => {
   });
 
   it("never invents a currency the posting did not state", () => {
-    expect(formatSalary(80000, 120000, null)).toBe("80,000–120,000");
+    expect(formatSalary(80000, 120000, null)).toBe("80k–120k");
     expect(formatSalary(80000, 120000, null)).not.toContain("$");
     expect(formatSalary(80000, 120000, null)).not.toContain("USD");
   });
 
   it("handles one-sided ranges", () => {
-    expect(formatSalary(50000, null, "EUR")).toBe("50,000+ EUR");
-    expect(formatSalary(null, 50000, "EUR")).toBe("up to 50,000 EUR");
+    expect(formatSalary(50000, null, "EUR")).toBe("50k+ EUR");
+    expect(formatSalary(null, 50000, "EUR")).toBe("up to 50k EUR");
   });
 });
 

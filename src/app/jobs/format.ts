@@ -16,6 +16,26 @@ const NUMBER = new Intl.NumberFormat("en-US");
 export const NOT_STATED = "—";
 
 /**
+ * Render one pay figure.
+ *
+ * Salaries are abbreviated to thousands ("245k"), hourly rates are not. The
+ * dashboard's pay column is narrow, and "245,000–310,000 USD" does not fit —
+ * it used to truncate to "245,000–310,0…", which is worse than useless because
+ * it looks like a complete number and is not. Anything under 10,000 is left
+ * alone: those are hourly or monthly figures where the exact value is the
+ * point.
+ */
+function formatAmount(value: number): string {
+  if (value < 10_000) return NUMBER.format(value);
+
+  const thousands = value / 1000;
+  // 245000 -> "245k"; 137500 -> "137.5k". Never more than one decimal.
+  const rounded =
+    Number.isInteger(thousands) ? thousands : Math.round(thousands * 10) / 10;
+  return `${rounded}k`;
+}
+
+/**
  * Format a posting's pay range.
  *
  * The currency is appended as its code ("USD", "EUR") rather than a symbol:
@@ -32,11 +52,11 @@ export function formatSalary(
   const suffix = currency ? ` ${currency}` : "";
 
   if (min !== null && max !== null) {
-    if (min === max) return `${NUMBER.format(min)}${suffix}`;
-    return `${NUMBER.format(min)}–${NUMBER.format(max)}${suffix}`;
+    if (min === max) return `${formatAmount(min)}${suffix}`;
+    return `${formatAmount(min)}–${formatAmount(max)}${suffix}`;
   }
-  if (min !== null) return `${NUMBER.format(min)}+${suffix}`;
-  return `up to ${NUMBER.format(max as number)}${suffix}`;
+  if (min !== null) return `${formatAmount(min)}+${suffix}`;
+  return `up to ${formatAmount(max as number)}${suffix}`;
 }
 
 /**

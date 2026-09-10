@@ -84,7 +84,11 @@ export function JobTable({ rows, verdicts, eligibility, now }: JobTableProps) {
             return (
               <tr key={job.id}>
                 <td>
-                  <a className="job-title" href={`/jobs/${job.id}`}>
+                  {/* One flex row: a long title truncates rather than pushing
+                      the badges onto a second line, which is what made row
+                      heights ragged and the table hard to scan. */}
+                  <div className="role-cell">
+                  <a className="job-title" href={`/jobs/${job.id}`} title={job.title}>
                     {job.title}
                   </a>
                   {job.status !== JobStatus.OPEN ? (
@@ -99,6 +103,7 @@ export function JobTable({ rows, verdicts, eligibility, now }: JobTableProps) {
                     <span
                       className={`badge badge-${classified.verdict}`}
                       title={classified.reason}
+                      aria-label={`Classifier: ${classified.verdict}. ${classified.reason}`}
                     >
                       {classified.verdict}
                     </span>
@@ -107,6 +112,7 @@ export function JobTable({ rows, verdicts, eligibility, now }: JobTableProps) {
                     <span
                       className={`badge badge-elig-${eligible}`}
                       title={ELIGIBILITY_TITLES[eligible]}
+                      aria-label={`Eligibility: ${eligible}. ${ELIGIBILITY_TITLES[eligible]}`}
                     >
                       {eligible}
                     </span>
@@ -120,6 +126,7 @@ export function JobTable({ rows, verdicts, eligibility, now }: JobTableProps) {
                   >
                     ↗
                   </a>
+                  </div>
                 </td>
                 <td>
                   {job.fit && job.fit.score !== null ? (
