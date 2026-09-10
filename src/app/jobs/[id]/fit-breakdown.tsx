@@ -1,0 +1,70 @@
+/**
+ * The fit score, with its working shown (spec §12).
+ *
+ * A single "82%" is not much use on its own — the reason to show the
+ * breakdown is that the score is only as good as the profile behind it, and
+ * seeing "skill alignment: your profile lists no skills" tells the reader
+ * exactly what to go and fix.
+ */
+
+import { WEIGHTS, type FitResult } from "@/lib/fit/score";
+
+/** Human labels for the component names. */
+const LABELS: Record<keyof typeof WEIGHTS, string> = {
+  roleSimilarity: "Role similarity",
+  skillAlignment: "Skill alignment",
+  experienceAlignment: "Experience alignment",
+  projectRelevance: "Project relevance",
+  educationAlignment: "Education alignment",
+  location: "Location",
+  freshness: "Posting freshness",
+};
+
+export function FitBreakdown({
+  fit,
+  reason,
+}: {
+  fit: FitResult | null;
+  /** Why there is no score, when there is none. */
+  reason: string;
+}) {
+  return (
+    <section>
+      <h2>Fit</h2>
+
+      {fit === null || fit.score === null ? (
+        <p className="note">{reason}</p>
+      ) : (
+        <>
+          <p className="fit-headline">FIT SCORE: {fit.score}%</p>
+          <p className="note">
+            Computed by rule, not by a model — every line below is a number this
+            app can show you the arithmetic for. Scored on{" "}
+            {Math.round(fit.coverage * 100)}% of spec §12&rsquo;s weights;
+            components neither the posting nor your profile said enough about are
+            skipped rather than counted as zero.
+          </p>
+
+          <table className="fit">
+            <tbody>
+              {fit.components.map((component) => (
+                <tr key={component.name}>
+                  <th scope="row">{LABELS[component.name]}</th>
+                  <td className="weight">
+                    {Math.round(WEIGHTS[component.name] * 100)}%
+                  </td>
+                  <td className="points">
+                    {component.score === null
+                      ? "skipped"
+                      : `${Math.round(component.score * 100)}`}
+                  </td>
+                  <td>{component.detail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </section>
+  );
+}

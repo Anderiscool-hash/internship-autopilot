@@ -19,9 +19,13 @@ import type { PrismaClient } from "@prisma/client";
 import { AtsType as DbAtsType, JobStatus, RemoteType as DbRemoteType } from "@prisma/client";
 import { buildJobWhere, type EligibilityFilter, type JobFilters } from "./filters";
 import { buildJobPage, orderByIds, MAX_SCAN, type JobPage } from "./list";
+import { NO_REQUIREMENTS } from "../eligibility/requirements";
 import { getProfile } from "../candidate/store";
 import { checkEligibility, type EligibilityProfile } from "../eligibility/engine";
 import { readStoredRequirements } from "../eligibility/stored";
+import { toEligibilityProfile, toFitProfile } from "../fit/profile";
+import { scoreFit, type FitResult } from "../fit/score";
+import { toPlainText } from "../eligibility/extract";
 
 /** One row as the dashboard table displays it. */
 export interface JobListRow {
@@ -40,6 +44,14 @@ export interface JobListRow {
   lastSeenAt: Date;
   /** OPEN, or CLOSED once the scanner saw it vanish from its board. */
   status: JobStatus;
+  /**
+   * Fit score for this row (spec §12), or null.
+   *
+   * Null covers three different situations the UI keeps apart: no profile
+   * exists, the job failed the hard eligibility gate (§12 scores only eligible
+   * jobs), or nothing in the profile could be compared against it.
+   */
+  fit: FitResult | null;
 }
 
 /** How many scanned jobs fell into each eligibility verdict. */
@@ -98,8 +110,10 @@ export async function listJobs(
   // on requirements parsed out of JSON, neither of which SQL can express.
   // The requirements themselves were extracted at ingest, so this is a cheap
   // comparison per row rather than a re-parse of every description.
-  const profile = await loadEligibilityProfile(db);
-  const eligibility = profile ? scoreEligibility(capped, profile) : null;
+  const profile = await getProfile(db);
+  const eligibility = profile
+    ? scoreEligibility(capped, toEligibilityProfile(profile))
+    : null;
   const eligibilityCounts = eligibility ? countEligibility(eligibility) : null;
 
   const filtered =
@@ -127,13 +141,36 @@ export async function listJobs(
             firstSeenAt: true,
             lastSeenAt: true,
             status: true,
+            // Only fetched for the ~50 rows actually being displayed, which is
+            // why fit scoring happens after pagination rather than before it.
+            description: true,
             company: { select: { name: true } },
           },
         });
 
-  const flattened: JobListRow[] = rows.map(({ company, ...job }) => ({
+  const fitProfile = profile ? toFitProfile(profile) : null;
+
+  const flattened: JobListRow[] = rows.map(({ company, description, ...job }) => ({
     ...job,
     companyName: company.name,
+    fit:
+      fitProfile && eligibility?.get(job.id) !== "ineligible"
+        ? scoreFit(
+            fitProfile,
+            {
+              title: job.title,
+              location: job.location,
+              remoteType: job.remoteType,
+              description: toPlainText(description),
+              firstSeenAt: job.firstSeenAt,
+              requirements:
+                readStoredRequirements(
+                  capped.find((scannedJob) => scannedJob.id === job.id)?.requirements,
+                ) ?? NO_REQUIREMENTS,
+            },
+            now,
+          )
+        : null,
   }));
 
   const { ids: _ids, ...pageMeta } = page;
@@ -142,23 +179,6 @@ export async function listJobs(
     rows: orderByIds(flattened, page.ids),
     eligibility,
     eligibilityCounts,
-  };
-}
-
-/** The candidate's eligibility-critical fields, or null if there is no profile. */
-async function loadEligibilityProfile(
-  db: PrismaClient,
-): Promise<EligibilityProfile | null> {
-  const profile = await getProfile(db);
-  if (!profile) return null;
-
-  return {
-    degree: profile.degree,
-    graduationDate: profile.graduationDate,
-    needsSponsorship: profile.needsSponsorship,
-    citizenship: profile.citizenship,
-    workAuthorization: profile.workAuthorization,
-    certifications: profile.certifications,
   };
 }
 

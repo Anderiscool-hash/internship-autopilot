@@ -672,3 +672,55 @@ table.checks .mark {
   color: var(--reject);
   background: var(--reject-bg);
 }
+
+.fit-score {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  cursor: help;
+}
+
+.fit-none {
+  color: var(--muted);
+  cursor: help;
+}
+
+/* --- fit breakdown on the detail page --- */
+
+.fit-headline {
+  font-size: 1.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin: 0.25rem 0 0.25rem;
+}
+
+table.fit {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+table.fit th {
+  text-align: left;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 0.5rem 0.75rem;
+}
+
+table.fit td {
+  padding: 0.5rem 0.75rem;
+  color: var(--muted);
+}
+
+table.fit tr + tr th,
+table.fit tr + tr td {
+  border-top: 1px solid var(--border);
+}
+
+table.fit .weight,
+table.fit .points {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

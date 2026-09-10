@@ -33,6 +33,24 @@ const ELIGIBILITY_TITLES: Record<EligibilityFilter, string> = {
   ineligible: "This posting states a hard requirement your profile contradicts.",
 };
 
+/**
+ * Why a row has no fit score.
+ *
+ * Three different reasons produce the same em dash, and the reader should be
+ * able to tell which one they are looking at (spec §12: only eligible jobs are
+ * scored at all).
+ */
+function fitAbsenceReason(
+  eligibility: Map<string, EligibilityFilter> | null,
+  jobId: string,
+): string {
+  if (eligibility === null) return "Fill in your profile to score jobs against it.";
+  if (eligibility.get(jobId) === "ineligible") {
+    return "Not scored — this job fails a hard requirement.";
+  }
+  return "Nothing in your profile could be compared against this posting.";
+}
+
 export function JobTable({ rows, verdicts, eligibility, now }: JobTableProps) {
   if (rows.length === 0) {
     return (
@@ -50,6 +68,7 @@ export function JobTable({ rows, verdicts, eligibility, now }: JobTableProps) {
         <thead>
           <tr>
             <th scope="col">Role</th>
+            <th scope="col">Fit</th>
             <th scope="col">Company</th>
             <th scope="col">Location</th>
             <th scope="col">Remote</th>
@@ -101,6 +120,20 @@ export function JobTable({ rows, verdicts, eligibility, now }: JobTableProps) {
                   >
                     ↗
                   </a>
+                </td>
+                <td>
+                  {job.fit && job.fit.score !== null ? (
+                    <span
+                      className="fit-score"
+                      title={`Scored on ${Math.round(job.fit.coverage * 100)}% of spec §12's weights.`}
+                    >
+                      {job.fit.score}%
+                    </span>
+                  ) : (
+                    <span className="fit-none" title={fitAbsenceReason(eligibility, job.id)}>
+                      —
+                    </span>
+                  )}
                 </td>
                 <td>{job.companyName}</td>
                 <td>{formatLocation(job.location)}</td>

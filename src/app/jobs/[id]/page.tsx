@@ -19,7 +19,10 @@ import { checkEligibility } from "@/lib/eligibility/engine";
 import { extractRequirements, toPlainText } from "@/lib/eligibility/extract";
 import { readStoredRequirements } from "@/lib/eligibility/stored";
 import { formatAge, formatEnum, formatLocation, formatSalary } from "../format";
+import { toEligibilityProfile, toFitProfile } from "@/lib/fit/profile";
+import { scoreFit } from "@/lib/fit/score";
 import { EligibilityTable } from "./eligibility-table";
+import { FitBreakdown } from "./fit-breakdown";
 
 export const dynamic = "force-dynamic";
 
@@ -46,21 +49,35 @@ export default async function JobDetailPage({ params }: JobPageProps) {
   const requirements =
     readStoredRequirements(job.requirements) ?? extractRequirements(job.description);
   const eligibility = profile
-    ? checkEligibility(
-        {
-          degree: profile.degree,
-          graduationDate: profile.graduationDate,
-          needsSponsorship: profile.needsSponsorship,
-          citizenship: profile.citizenship,
-          workAuthorization: profile.workAuthorization,
-          certifications: profile.certifications,
-        },
-        requirements,
-      )
+    ? checkEligibility(toEligibilityProfile(profile), requirements)
     : null;
 
   const classification = classifyStudentRole(job.title);
   const description = toPlainText(job.description);
+
+  // Spec §12 is explicit that only eligible jobs are scored: a fit percentage
+  // on a job the candidate cannot legally take is a number that can only
+  // mislead. "unconfirmed" still gets scored — nothing has ruled it out.
+  const scoreable = profile !== null && eligibility?.verdict !== "ineligible";
+  const fit = scoreable
+    ? scoreFit(
+        toFitProfile(profile),
+        {
+          title: job.title,
+          location: job.location,
+          remoteType: job.remoteType,
+          description,
+          firstSeenAt: job.firstSeenAt,
+          requirements,
+        },
+        now,
+      )
+    : null;
+
+  const noFitReason =
+    profile === null
+      ? "No fit score yet — fill in your profile and this becomes a real number."
+      : "Not scored: this job fails a hard requirement above, and spec §12 only scores jobs you are eligible for.";
 
   return (
     <main className="page page-wide">
@@ -124,6 +141,8 @@ export default async function JobDetailPage({ params }: JobPageProps) {
         requirements={requirements}
         hasProfile={profile !== null}
       />
+
+      <FitBreakdown fit={fit} reason={noFitReason} />
 
       <section>
         <h2>Description</h2>

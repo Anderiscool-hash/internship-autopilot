@@ -79,7 +79,10 @@ The dashboard lives at `/jobs`: every discovered posting, newest first,
 filterable by title, company, ATS, remote type, how recently it was first seen,
 and the student-role classifier's verdict. Once your profile exists it also
 screens every job against spec §11's hard requirements, so you can filter down
-to the ones you are actually eligible for. Closed postings are hidden unless
+to the ones you are actually eligible for, and scores the fit of the ones you
+are (spec §12). Fit is computed for the rows on the page you are looking at,
+so there is no sort-by-fit yet — that needs the score precomputed per job,
+which it cannot be while it depends on a profile that changes. Closed postings are hidden unless
 you tick "Include closed".
 
 ## Running the scanner
@@ -116,9 +119,9 @@ Environment variables: `SCAN_CYCLE_SECONDS` (default 60), `SCAN_LIMIT`
 company registry, Greenhouse/Lever/Ashby clients, dedupe, the student-role
 classifier, the continuous scanner with adaptive polling and removal tracking,
 the job dashboard, internship alerts, the profile + Truth Ledger screen, and
-the rule-based half of Phase 3 — requirement extraction and the hard
-eligibility engine, shown on each job's detail page. Not built: the AI half of
-Phase 3 (skills, role category, fit scoring), and everything from Phase 4 on — eligibility, fit scoring, resumes, and applying.
+the rule-based half of Phase 3 — requirement extraction, the hard eligibility
+engine, and the fit engine, all shown on each job's detail page. Not built:
+resume coverage (§13) and everything from Phase 4 on — eligibility, fit scoring, resumes, and applying.
 See §40 of the plan for the roadmap and §41 for what counts as a usable V1.
 
 ## Working agreement for this repo
