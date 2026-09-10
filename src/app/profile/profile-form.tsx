@@ -9,6 +9,12 @@
 
 import { RemotePreference } from "@prisma/client";
 import type { Candidate } from "@prisma/client";
+import type { ResumeSuggestions } from "@/lib/resume/parse-fields";
+import {
+  chooseFieldValue,
+  chooseListValue,
+  type Suggested,
+} from "@/lib/resume/suggestions";
 import { formatEnum } from "../jobs/format";
 import { saveProfileAction } from "./actions";
 
@@ -18,7 +24,15 @@ function monthValue(value: Date | null): string {
   return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-/** One labelled text input. */
+/**
+ * One labelled text input.
+ *
+ * When a resume import suggested a value, it fills the box and its evidence is
+ * shown underneath. An existing profile value always wins: this screen must
+ * never overwrite something the user typed with something a parser guessed.
+ * Nothing is stored until the form is submitted — a suggestion is a draft, not
+ * a fact (spec section 3).
+ */
 function Field({
   name,
   label,
@@ -27,6 +41,7 @@ function Field({
   placeholder,
   required = false,
   hint,
+  suggestion,
 }: {
   name: string;
   label: string;
@@ -35,9 +50,14 @@ function Field({
   placeholder?: string;
   required?: boolean;
   hint?: string;
+  suggestion?: Suggested<string>;
 }) {
+  // Which of the two wins is decided in one tested place — see
+  // src/lib/resume/suggestions.ts for why that is not as trivial as it looks.
+  const { value, fromSuggestion } = chooseFieldValue(defaultValue, suggestion);
+
   return (
-    <label className="field">
+    <label className={fromSuggestion ? "field field-suggested" : "field"}>
       <span>
         {label}
         {required ? <em className="req"> required</em> : null}
@@ -45,10 +65,16 @@ function Field({
       <input
         type={type}
         name={name}
-        defaultValue={defaultValue ?? ""}
+        defaultValue={value}
         placeholder={placeholder}
         required={required}
       />
+      {fromSuggestion && suggestion ? (
+        <small className="suggested">
+          <strong>{suggestion.source === "ai" ? "AI" : "From your resume"}:</strong>{" "}
+          {suggestion.evidence}
+        </small>
+      ) : null}
       {hint ? <small>{hint}</small> : null}
     </label>
   );
@@ -60,51 +86,110 @@ function ListField({
   label,
   defaultValue,
   placeholder,
+  suggestion,
 }: {
   name: string;
   label: string;
   defaultValue: string[];
   placeholder?: string;
+  suggestion?: Suggested<string[]>;
 }) {
+  const { values, fromSuggestion } = chooseListValue(defaultValue, suggestion);
+
   return (
-    <label className="field field-wide">
+    <label
+      className={
+        fromSuggestion ? "field field-wide field-suggested" : "field field-wide"
+      }
+    >
       <span>{label}</span>
-      <textarea name={name} rows={3} defaultValue={defaultValue.join(", ")} placeholder={placeholder} />
+      <textarea name={name} rows={3} defaultValue={values.join(", ")} placeholder={placeholder} />
+      {fromSuggestion && suggestion ? (
+        <small className="suggested">
+          <strong>{suggestion.source === "ai" ? "AI" : "From your resume"}:</strong>{" "}
+          {suggestion.evidence}
+        </small>
+      ) : null}
       <small>Separate with commas or new lines.</small>
     </label>
   );
 }
 
-export function ProfileForm({ profile }: { profile: Candidate | null }) {
+export function ProfileForm({
+  profile,
+  suggestions = {},
+}: {
+  profile: Candidate | null;
+  /** Values read from an uploaded resume, awaiting review. */
+  suggestions?: ResumeSuggestions;
+}) {
   return (
     <form className="stack" action={saveProfileAction}>
       <fieldset>
         <legend>Who you are</legend>
         <div className="grid">
-          <Field name="name" label="Full name" defaultValue={profile?.name} required />
+          <Field
+            name="name"
+            label="Full name"
+            defaultValue={profile?.name}
+            suggestion={suggestions.name}
+            required
+          />
           <Field
             name="email"
             label="Email"
             type="email"
             defaultValue={profile?.email}
+            suggestion={suggestions.email}
             required
           />
-          <Field name="phone" label="Phone" defaultValue={profile?.phone} />
-          <Field name="address" label="Location / address" defaultValue={profile?.address} />
-          <Field name="linkedinUrl" label="LinkedIn" defaultValue={profile?.linkedinUrl} />
-          <Field name="githubUrl" label="GitHub" defaultValue={profile?.githubUrl} />
-          <Field name="portfolioUrl" label="Portfolio" defaultValue={profile?.portfolioUrl} />
+          <Field
+            name="phone"
+            label="Phone"
+            defaultValue={profile?.phone}
+            suggestion={suggestions.phone}
+          />
+          <Field
+            name="address"
+            label="Location / address"
+            defaultValue={profile?.address}
+            suggestion={suggestions.address}
+          />
+          <Field
+            name="linkedinUrl"
+            label="LinkedIn"
+            defaultValue={profile?.linkedinUrl}
+            suggestion={suggestions.linkedinUrl}
+          />
+          <Field
+            name="githubUrl"
+            label="GitHub"
+            defaultValue={profile?.githubUrl}
+            suggestion={suggestions.githubUrl}
+          />
+          <Field
+            name="portfolioUrl"
+            label="Portfolio"
+            defaultValue={profile?.portfolioUrl}
+            suggestion={suggestions.portfolioUrl}
+          />
         </div>
       </fieldset>
 
       <fieldset>
         <legend>School</legend>
         <div className="grid">
-          <Field name="school" label="School" defaultValue={profile?.school} />
+          <Field
+            name="school"
+            label="School"
+            defaultValue={profile?.school}
+            suggestion={suggestions.school}
+          />
           <Field
             name="degree"
             label="Degree"
             defaultValue={profile?.degree}
+            suggestion={suggestions.degree}
             placeholder="BS Computer Science"
           />
           <Field
@@ -112,6 +197,7 @@ export function ProfileForm({ profile }: { profile: Candidate | null }) {
             label="Expected graduation"
             type="month"
             defaultValue={monthValue(profile?.graduationDate ?? null)}
+            suggestion={suggestions.graduationDate}
           />
         </div>
       </fieldset>
@@ -187,6 +273,7 @@ export function ProfileForm({ profile }: { profile: Candidate | null }) {
             name="skills"
             label="Skills"
             defaultValue={profile?.skills ?? []}
+            suggestion={suggestions.skills}
             placeholder="Python, TypeScript, SQL"
           />
           <ListField

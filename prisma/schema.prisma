@@ -686,6 +686,77 @@ model Application {
 }
 
 // ----------------------------------------------------------------------------
+// AI PROVIDER SETTINGS
+// ----------------------------------------------------------------------------
+
+/// Which model backend the AI-assisted features use (spec §30 leaves the
+/// provider open: "LLM via a provider gateway").
+enum AiProviderKind {
+  /// No provider configured. Every AI-assisted feature is switched off and
+  /// says so — this is the default, and nothing silently falls back to a
+  /// different model.
+  NONE
+  /// A local model over an OpenAI-compatible endpoint (Ollama, LM Studio,
+  /// vLLM). Keeps the candidate's resume and Truth Ledger on this machine.
+  LOCAL
+  /// Claude via the Anthropic API.
+  ANTHROPIC
+}
+
+/// The single row holding AI settings.
+///
+/// Deliberately does NOT hold an API key. Keys live in the git-ignored `.env`
+/// — a key in Postgres would end up in every backup and every `SELECT *`, and
+/// this table is read by page renders.
+model AiSettings {
+  /// Always "singleton" — this app has one user and one configuration.
+  id String @id @default("singleton")
+
+  provider AiProviderKind @default(NONE)
+
+  /// Base URL of the OpenAI-compatible server, LOCAL only
+  /// (e.g. http://localhost:11434/v1 for Ollama).
+  baseUrl String?
+  /// Model id to request. Meaning depends on the provider: an Ollama tag for
+  /// LOCAL, a Claude model id for ANTHROPIC.
+  model   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// One parsed resume, waiting to be reviewed on the profile screen.
+///
+/// The upload → review → save flow needs somewhere to keep the suggestions
+/// between the POST that parses the file and the GET that renders the form
+/// with them filled in. They are too big for a query string and must not go
+/// straight onto the Candidate row — spec §3 means a value read out of a
+/// document is a suggestion until a human confirms it.
+///
+/// The resume file itself is NOT stored. Nothing needs it after the text is
+/// extracted, and a personal document kept on disk is a liability with no
+/// current purpose. The extracted text is kept so the parse can be re-run with
+/// a different model without re-uploading.
+model ResumeImport {
+  id String @id @default(cuid())
+
+  /// Original file name, shown on the review screen so the user knows which
+  /// upload they are looking at.
+  filename String
+  /// Extracted plain text.
+  text     String @db.Text
+  /// ResumeSuggestions from src/lib/resume/parse-fields.ts — field name to
+  /// {value, evidence, source}.
+  suggestions Json
+
+  /// True once the user has saved a profile from this import; kept as a record
+  /// rather than deleted so a re-import can be compared against it.
+  applied Boolean @default(false)
+
+  createdAt DateTime @default(now())
+}
+
+// ----------------------------------------------------------------------------
 // EVENT LOG (spec §40 Phase 1 — "Job/application event logs")
 // ----------------------------------------------------------------------------
 

@@ -100,7 +100,18 @@ because a percentage from three applications reads as a fact and is not one.
 posting-age and per-day limits, and per-ATS authority. Nothing is enabled by
 default and no apply worker exists yet, so nothing is ever submitted.
 
-`/profile` is where you enter who you are and what is true about you — the
+`/settings/ai` picks the model backend for the AI-assisted features: a local
+model over an OpenAI-compatible endpoint (Ollama, LM Studio, vLLM), Claude via
+`ANTHROPIC_API_KEY`, or nothing at all — which is the default. "Save and test
+connection" runs a real completion and reports what came back, because provider
+setup fails in specific fixable ways and the point is to be told which one.
+
+`/profile` is where you enter who you are and what is true about you. It can
+autofill from an uploaded resume (PDF, DOCX or text): contact details, degree
+and graduation date are read by pattern and work with no model at all, while a
+configured provider adds your name, location and skills. Everything it reads is
+a **suggestion** shown with the line of the resume it came from — nothing
+reaches your profile until you review it and press Save — the
 Truth Ledger (spec §3) is the only source of claims the AI is ever allowed to
 make on your behalf, so nothing downstream works until it has something in it.
 

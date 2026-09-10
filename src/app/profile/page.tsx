@@ -9,7 +9,10 @@
 
 import { db } from "@/lib/db";
 import { getProfile } from "@/lib/candidate/store";
+import { aiUnavailableReason } from "@/lib/ai";
+import type { ResumeSuggestions } from "@/lib/resume/parse-fields";
 import { ProfileForm } from "./profile-form";
+import { ResumeImport } from "./resume-import";
 import { TruthLedger } from "./truth-ledger";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +36,7 @@ const SAVED_MESSAGES: Record<string, string> = {
   profile: "Profile saved.",
   fact: "Added to the Truth Ledger.",
   deleted: "Removed from the Truth Ledger.",
+  imported: "Resume read.",
 };
 
 export default async function ProfilePage({ searchParams }: ProfilePageProps) {
@@ -49,6 +53,24 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
   } catch (error) {
     dbError = error instanceof Error ? error.message : String(error);
   }
+
+  // A resume import in the URL means "show me what you read, filled into the
+  // form". Nothing from it has touched the profile — the user reviews the
+  // values and presses Save, or does not.
+  const importId = one(params, "import");
+  const note = one(params, "note");
+  let suggestions: ResumeSuggestions = {};
+  let importedFile: string | null = null;
+
+  if (importId && dbError === null) {
+    const imported = await db.resumeImport.findUnique({ where: { id: importId } });
+    if (imported) {
+      suggestions = imported.suggestions as ResumeSuggestions;
+      importedFile = imported.filename;
+    }
+  }
+
+  const aiOff = dbError === null ? await aiUnavailableReason(db) : null;
 
   if (dbError !== null) {
     return (
@@ -90,14 +112,27 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
         </div>
       ) : null}
 
+      {note ? <div className="notice">{note}</div> : null}
+
       {profile === null ? (
         <div className="notice">
           No profile yet. Name and email are all that is required to start —
-          everything else can be filled in as you go.
+          everything else can be filled in as you go. Or upload your resume
+          below and check what it reads.
         </div>
       ) : null}
 
-      <ProfileForm profile={profile} />
+      <ResumeImport aiOff={aiOff} importedFile={importedFile} />
+
+      {importedFile ? (
+        <div className="notice notice-ok">
+          Filled in from <strong>{importedFile}</strong>. Everything below is a
+          suggestion — check it, fix anything wrong, then press Save. Nothing has
+          been stored yet.
+        </div>
+      ) : null}
+
+      <ProfileForm profile={profile} suggestions={suggestions} />
 
       <TruthLedger facts={profile?.truthFacts ?? []} canAdd={profile !== null} />
     </main>

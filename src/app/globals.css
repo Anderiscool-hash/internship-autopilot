@@ -883,3 +883,81 @@ table.fit .points {
   font-weight: 400;
   cursor: help;
 }
+
+/* ---------------------------------------------------------------------------
+   AI settings + resume import.
+   --------------------------------------------------------------------------- */
+
+.stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.radio-row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+.radio-row:hover {
+  border-color: var(--accent);
+}
+
+.radio-row span {
+  display: block;
+  font-size: 0.875rem;
+}
+
+.radio-row small {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  max-width: 46rem;
+}
+
+.import-panel {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1rem 1.25rem 1.25rem;
+  background: var(--surface);
+  margin-bottom: 1.5rem;
+}
+
+.import-panel h2 {
+  margin-top: 0;
+}
+
+.import-form {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.import-form .field {
+  flex: 1 1 22rem;
+}
+
+.import-form input[type="file"] {
+  font: inherit;
+  font-size: 0.875rem;
+  padding: 0.35rem 0;
+}
+
+/* A field holding an unreviewed suggestion, so it is obvious which values came
+   from the document rather than from the user. */
+.field-suggested input,
+.field-suggested textarea {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+}
+
+.suggested {
+  color: var(--accent) !important;
+}

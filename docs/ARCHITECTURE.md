@@ -59,6 +59,8 @@ the test suite needs no database and CI does not run one.
 | §24 Application tracker | Board, outcomes, notes | `src/app/applications/` |
 | §28 Internship alerts | Batched, deduped via EventLog | `src/lib/alerts/` |
 | §29 Analytics | Rates that refuse small samples | `src/lib/analytics/` |
+| §30 Provider gateway | One interface, local or Claude | `src/lib/ai/`, `src/app/settings/ai/` |
+| §2 Resume autofill | Patterns first, model second, review always | `src/lib/resume/`, `src/app/profile/` |
 | §40 Job dashboard | List, filters, screening | `src/app/jobs/`, `src/lib/jobs/query.ts` |
 
 ## Two decisions that differ from the spec, and why
@@ -75,6 +77,25 @@ posting is discovered. Rendering it per request was fine for one job page but
 could not support screening thousands of jobs on eligibility. Null in that
 column means "not extracted yet", never "requires nothing" — the two are kept
 apart everywhere they are read.
+
+## AI, and where it is not used
+
+Most of this app is rule-based and calls no model at all: discovery, dedupe,
+the student-role classifier, requirement extraction, hard eligibility, fit
+scoring, the state machine, analytics. That is a deliberate split — those
+answers have to be explainable and reproducible, and a rule can show its
+working.
+
+A model is used for two things only, both behind `src/lib/ai`:
+
+- **the half of resume parsing patterns cannot do** — which line is a name,
+  which words are skills
+- **document drafting** (Phase 4, not built) — where prose quality is the point
+
+The provider is chosen at `/settings/ai` and defaults to none. Local models
+suit the high-volume work and keep the candidate's resume on the machine;
+Claude suits the low-volume documents that carry their name. Nothing falls
+back to a provider the user did not choose.
 
 ## What is not built
 
