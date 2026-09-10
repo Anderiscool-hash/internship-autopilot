@@ -56,6 +56,8 @@ the test suite needs no database and CI does not run one.
 | §23 Workflow state machine | Legal transitions, resumability | `src/lib/applications/machine.ts` |
 | §24 Application tracker | Board, outcomes, notes | `src/app/applications/` |
 | §28 Internship alerts | Batched, deduped via EventLog | `src/lib/alerts/` |
+| §17 Application confidence | Weighted, hard-zero on CAPTCHA | `src/lib/apply/confidence.ts` |
+| §19 Preflight | Reads the real form, never submits | `scripts/preflight.ts`, `src/lib/apply/` |
 | §29 Analytics | Rates that refuse small samples | `src/lib/analytics/` |
 | §40 Job dashboard | List, filters, screening | `src/app/jobs/`, `src/lib/jobs/query.ts` |
 
@@ -78,7 +80,9 @@ apart everywhere they are read.
 
 - Resume builder, resume coverage, cover letters (§13–15) — need an AI
   provider, and no key is set.
-- Playwright apply workers, preflight, shadow mode (§19–22) — Phase 5.
+- Playwright apply workers and shadow mode (§20–22). Preflight (§19) is built
+  but **reads only** — `src/lib/apply/read-form.ts` contains no code that can
+  type into or submit a form, deliberately.
 - Gmail status tracking, contact finder, recruiter outreach (§25–27) — need
   Google and enrichment API credentials.
 - AWS deployment (§31–38).

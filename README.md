@@ -120,6 +120,7 @@ you tick "Include closed".
 npm run scan           # continuous, 24/7 (spec §5)
 npm run eligibility:report  # how often postings state a checkable requirement
 npm run extract:backfill    # extract requirements for older rows (--all to redo)
+npm run preflight -- <jobId>  # read a job's real application form (spec §19)
 npm run scan -- --once # a single cycle, then exit
 npm run discover       # scan every active board now, ignoring the schedule
 ```
@@ -151,9 +152,12 @@ the job dashboard, internship alerts, the profile + Truth Ledger screen, and
 the rule-based half of Phase 3 — requirement extraction, the hard eligibility
 engine, and the fit engine, all shown on each job's detail page; and the
 application tracker with its §23 state machine, the answer bank (§16), the auto-apply
-rules engine (§18), and analytics (§29). Not built: resume coverage
-(§13), the document builders (Phase 4), and the Playwright apply flow
-(Phase 5) — eligibility, fit scoring, resumes, and applying.
+rules engine (§18), analytics (§29), and read-only application preflight
+(§17/§19) — it opens the real form in a browser, reads what it asks for, and
+scores confidence. Not built: resume coverage
+(§13), the document builders (Phase 4), and anything that submits an application: the
+Playwright apply workers of §22 do not exist, and preflight has no code path
+that could type or submit — eligibility, fit scoring, resumes, and applying.
 See §40 of the plan for the roadmap and §41 for what counts as a usable V1.
 
 ## Working agreement for this repo
