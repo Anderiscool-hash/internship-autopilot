@@ -55,6 +55,7 @@ the test suite needs no database and CI does not run one.
 | §17 Application confidence | Weighted, hard-zero on CAPTCHA | `src/lib/apply/confidence.ts` |
 | §18 Auto-apply rules | auto / review / blocked decision | `src/lib/autoapply/rules.ts`, `src/app/settings/` |
 | §19 Preflight | Reads the real form, never submits | `scripts/preflight.ts`, `src/lib/apply/` |
+| §20 Shadow Mode | Fills a real form, blocked from submitting | `src/lib/apply/shadow.ts`, `scripts/shadow-apply.ts` |
 | §23 Workflow state machine | Legal transitions, resumability | `src/lib/applications/machine.ts` |
 | §24 Application tracker | Board, outcomes, notes | `src/app/applications/` |
 | §28 Internship alerts | Batched, deduped via EventLog | `src/lib/alerts/` |
@@ -101,9 +102,10 @@ back to a provider the user did not choose.
 
 - Resume builder, resume coverage, cover letters (§13–15) — need an AI
   provider, and no key is set.
-- Playwright apply workers and shadow mode (§20–22). Preflight (§19) is built
-  but **reads only** — `src/lib/apply/read-form.ts` contains no code that can
-  type into or submit a form, deliberately.
+- Playwright apply workers (§22) and auto-submit. Shadow Mode (§20) fills real
+  forms but **cannot submit**: the browser context aborts every non-GET request
+  while it runs, so submission is impossible rather than merely unimplemented.
+  Preflight (§19) only reads.
 - Gmail status tracking, contact finder, recruiter outreach (§25–27) — need
   Google and enrichment API credentials.
 - AWS deployment (§31–38).

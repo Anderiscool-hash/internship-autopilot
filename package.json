@@ -31,7 +31,9 @@
     "extract:backfill": "tsx scripts/extract-backfill.ts",
     "preflight": "tsx scripts/preflight.ts",
     "data:export": "tsx scripts/export-data.ts",
-    "data:import": "tsx scripts/import-data.ts"
+    "data:import": "tsx scripts/import-data.ts",
+    "shadow": "tsx scripts/shadow-apply.ts",
+    "shadow:verdict": "tsx scripts/shadow-verdict.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

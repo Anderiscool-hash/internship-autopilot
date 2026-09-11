@@ -139,6 +139,26 @@ so there is no sort-by-fit yet — that needs the score precomputed per job,
 which it cannot be while it depends on a profile that changes. Closed postings are hidden unless
 you tick "Include closed".
 
+## Shadow Mode (spec §20)
+
+```bash
+npm run shadow -- <jobId>              # fill a real form, stop before Submit
+npm run shadow -- <jobId> --keep-open  # leave the browser up to inspect
+npm run shadow:verdict -- <runId> correct
+npm run shadow:verdict -- <runId> wrong "what was wrong"
+```
+
+Opens the real application form in a visible browser, fills every field it has
+a stored answer for, screenshots the result, and stops. **Submission is blocked
+at the network layer** — while shadow mode drives the page, every non-GET
+request is aborted, so an application cannot be sent even by accident. A
+submission has to be a POST to the form's own host; those are reported loudly,
+third-party beacons are only counted.
+
+Nothing is ever invented. A question with no stored answer is left blank and
+listed, per spec §16. Your verdict on each run is what spec §21 promotes an
+adapter on — real recorded runs a human checked, not an impression.
+
 ## Reaching it from another device
 
 Local requests — this machine, or another device on the same home network —

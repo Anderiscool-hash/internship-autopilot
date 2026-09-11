@@ -42,3 +42,6 @@ tsconfig.tsbuildinfo
 # Data exports hold the profile and Truth Ledger — never commit one.
 backup*.json
 .shots/
+
+# Shadow-mode screenshots contain your filled-in personal details.
+shadow-runs/

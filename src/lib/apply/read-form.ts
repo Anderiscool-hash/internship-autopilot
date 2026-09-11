@@ -28,7 +28,17 @@ const TIMEOUT_MS = 30_000;
 
 /** What was read off one application page, before any answers are matched in. */
 export interface ReadFormResult extends Omit<ParsedForm, "fields"> {
-  fields: (Omit<ParsedField, "answered"> & { kind: FieldKind })[];
+  fields: (Omit<ParsedField, "answered"> & {
+    kind: FieldKind;
+    /** DOM id, when there is one — the preferred selector. */
+    elementId: string;
+    /** name attribute; the fallback selector and the radio-group key. */
+    name: string;
+    /** text | email | textarea | select | radio | checkbox | file | ... */
+    inputType: string;
+    /** Option labels, for selects and choice groups. */
+    options: string[];
+  })[];
   /** The URL actually landed on, after any redirects. */
   finalUrl: string;
 }
@@ -39,6 +49,33 @@ export interface ReadFormResult extends Omit<ParsedForm, "fields"> {
  * The caller owns the browser so that a preflight over many jobs pays the
  * startup cost once.
  */
+/**
+ * Read a form from a page that is already open.
+ *
+ * Split out so shadow mode can read and fill the same page: loading the
+ * employer's form twice to do one application is both slower and slightly
+ * rude, and it risks reading one render and filling a different one.
+ */
+export async function readOpenForm(page: Page, url: string): Promise<ReadFormResult> {
+  const captcha = await hasCaptcha(page);
+  const loginRequired = await hasLoginWall(page);
+  const fields = await readFields(page);
+
+  return {
+    fields,
+    unrecognizedFields: fields.filter((field) => field.kind === "unknown").length,
+    captcha,
+    loginRequired,
+    resumeRequired: fields.some(
+      (field) => field.kind === "file" && /resume|cv/i.test(field.label),
+    ),
+    coverLetterRequired: fields.some(
+      (field) => field.kind === "file" && /cover.?letter/i.test(field.label),
+    ),
+    finalUrl: url,
+  };
+}
+
 export async function readApplicationForm(
   browser: Browser,
   url: string,
@@ -209,9 +246,31 @@ async function readFields(page: Page): Promise<ReadFormResult["fields"]> {
             ? ancestorLabel || labelText
             : labelText;
 
+        // Option labels: a select's own options, or the labels of every radio
+        // sharing this control's name. Without them, a yes/no question cannot
+        // be answered — and those are most of the legal questions.
+        let options: string[] = [];
+        if (element.tagName.toLowerCase() === "select") {
+          options = Array.from((element as HTMLSelectElement).options)
+            .map((option) => (option.textContent ?? "").trim())
+            .filter((text) => text.length > 0);
+        } else if (isChoice && (element as HTMLInputElement).name) {
+          const groupSelector = `input[name="${CSS.escape((element as HTMLInputElement).name)}"]`;
+          options = Array.from(document.querySelectorAll(groupSelector))
+            .map((radio) => {
+              const own = radio.id
+                ? document.querySelector(`label[for="${CSS.escape(radio.id)}"]`)
+                : null;
+              const wrapping = radio.closest("label");
+              return (own?.textContent ?? wrapping?.textContent ?? radio.getAttribute("value") ?? "").trim();
+            })
+            .filter((text) => text.length > 0);
+        }
+
         return {
           rawLabel: resolved,
           elementId: element.id ?? "",
+          options,
           groupName: (element as HTMLInputElement).name ?? "",
           isChoice,
           inputType:
@@ -253,6 +312,10 @@ async function readFields(page: Page): Promise<ReadFormResult["fields"]> {
         kind: classifyFieldLabel(label, field.inputType),
         required:
           field.htmlRequired || looksRequired(field.rawLabel, field.ariaRequired),
+        elementId: field.elementId,
+        name: field.groupName,
+        inputType: field.inputType,
+        options: field.options,
       };
     });
 }

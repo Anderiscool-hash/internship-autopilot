@@ -242,6 +242,7 @@ model Candidate {
   answerBankEntries AnswerBankEntry[]
   preferences       CandidatePreferences?
   applications      Application[]
+  shadowRuns        ShadowRun[]
 }
 
 /// One job the candidate has held. This is candidate-provided description
@@ -584,6 +585,7 @@ model Job {
   requirementsExtractedAt DateTime?
 
   applications Application[]
+  shadowRuns   ShadowRun[]
 
   // Extra dedupe safety net beyond the fingerprint above (spec §8 also
   // lists "ATS source ID" + "Company" as dedupe signals on their own) —
@@ -754,6 +756,54 @@ model ResumeImport {
   applied Boolean @default(false)
 
   createdAt DateTime @default(now())
+}
+
+/// One Shadow Mode run (spec §20): the bot filled a real application form and
+/// stopped before Submit.
+///
+/// Kept because spec §21 promotes an ATS adapter from "autofill, review" to
+/// anything more trusted only after real testing — and "real testing" has to
+/// mean recorded runs a human checked, not an impression. `verdict` is that
+/// check, and the per-ATS pass rate is what a promotion decision reads.
+model ShadowRun {
+  id String @id @default(cuid())
+
+  jobId String
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  /// The form URL actually opened — usually the ATS-native one, not the
+  /// employer's marketing page.
+  url     String
+  atsType AtsType
+
+  fieldsTotal   Int
+  fieldsFilled  Int
+  fieldsSkipped Int
+  fieldsFailed  Int
+
+  /// Required fields left empty. Non-empty means "would NOT have applied".
+  blockingGaps String[]
+
+  captcha       Boolean @default(false)
+  loginRequired Boolean @default(false)
+
+  /// Where the screenshot of the filled form was written.
+  screenshotPath String
+  /// Per-field record: what went in, or why nothing did.
+  outcomes       Json
+
+  /// "correct" | "wrong", once a human has checked the screenshot. Null until
+  /// then — an unverified run is not evidence of anything.
+  verdict     String?
+  verdictNote String?
+  verifiedAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([atsType, verdict])
 }
 
 // ----------------------------------------------------------------------------
