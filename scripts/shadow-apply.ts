@@ -6,7 +6,8 @@
  * is impossible rather than merely unimplemented.
  *
  * Run it with:  npm run shadow -- <jobId>
- *               npm run shadow -- <jobId> --keep-open
+ *               npm run shadow -- <jobId> --keep-open  (inspect, still locked)
+ *               npm run shadow -- <jobId> --handoff    (fill, then it is yours)
  *
  * Afterwards it prints what it filled, what it could not, and where the
  * screenshot is. Record whether the fields were right with:
@@ -27,6 +28,8 @@ const SHOT_DIR = resolve("./shadow-runs");
 async function main(): Promise<void> {
   const jobId = process.argv[2];
   const keepOpen = process.argv.includes("--keep-open");
+  // Handoff: fill it, then give the window to the person so they can submit.
+  const handoff = process.argv.includes("--handoff");
 
   if (!jobId) {
     console.error("Usage: npm run shadow -- <jobId> [--keep-open]");
@@ -87,6 +90,7 @@ async function main(): Promise<void> {
     answers,
     screenshotPath,
     keepOpen,
+    handoff,
   });
 
   const filled = result.outcomes.filter((o) => o.status === "filled" || o.status === "chosen");

@@ -23,6 +23,9 @@ import { toEligibilityProfile, toFitProfile } from "@/lib/fit/profile";
 import { scoreFit } from "@/lib/fit/score";
 import { findApplicationForJob } from "@/lib/applications/store";
 import { formatEnum as formatStatus } from "../format";
+import { headers } from "next/headers";
+import { isLocalHost } from "@/lib/auth/session";
+import { ShadowButton } from "./shadow-button";
 import { TrackControls } from "./track-controls";
 import { EligibilityTable } from "./eligibility-table";
 import { FitBreakdown } from "./fit-breakdown";
@@ -38,6 +41,8 @@ export default async function JobDetailPage({ params, searchParams }: JobPagePro
   const { id } = await params;
   const query = await searchParams;
   const message = typeof query.error === "string" ? query.error : null;
+  const notice = typeof query.saved === "string" ? query.saved : null;
+  const local = isLocalHost((await headers()).get("host"));
 
   const job = await db.job.findUnique({
     where: { id },
@@ -150,6 +155,9 @@ export default async function JobDetailPage({ params, searchParams }: JobPagePro
       />
 
       {message ? <div className="notice notice-error">{message}</div> : null}
+      {notice ? <div className="notice notice-ok">{notice}</div> : null}
+
+      <ShadowButton jobId={job.id} local={local} hasProfile={profile !== null} />
 
       <TrackControls
         jobId={job.id}

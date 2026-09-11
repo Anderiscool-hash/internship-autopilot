@@ -79,8 +79,21 @@ export async function runShadowApply(options: {
   profile: FillProfile;
   answers: AnswerEntry[];
   screenshotPath: string;
-  /** Leave the browser open when done, so the human can check and submit. */
+  /** Leave the browser open when done, so the human can check the result. */
   keepOpen?: boolean;
+  /**
+   * Hand the filled form over: keep the window open AND lift the submit guard
+   * once filling has finished, so the person can review and submit themselves.
+   *
+   * The guarantee this file makes is that **the bot** never submits, and that
+   * survives: the guard is only lifted after every field has been filled, at
+   * which point nothing automated is driving the page any more. A POST after
+   * that is a human pressing a button in a window they are looking at. Leaving
+   * the guard on instead would mean the person has to re-fill the whole form
+   * somewhere else to apply, which is how a safety measure ends up being
+   * switched off wholesale.
+   */
+  handoff?: boolean;
 }): Promise<ShadowRunResult> {
   const browser: Browser = await chromium.launch({ headless: false });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -146,15 +159,30 @@ export async function runShadowApply(options: {
       blockedTrackers,
     };
 
-    if (options.keepOpen) {
-      // Hand the browser over. The guard stays on: if the person wants to
-      // submit, they can do it in their own browser, where nothing this code
-      // wrote is in the way. Lifting the guard here would mean shadow mode
-      // ends with submission enabled, which is the one thing it promises not
-      // to do.
+    if (options.handoff) {
+      // Filling is done, so the bot stops driving and the guard comes off.
+      //
+      // The promise this file makes is that *the bot* never submits, and that
+      // survives: nothing automated touches the page after this line, so a
+      // POST from here is a person pressing a button in a window they are
+      // looking at. Keeping the guard on instead would mean re-filling the
+      // whole form somewhere else in order to apply — which is how a safety
+      // measure ends up being switched off wholesale.
+      await context.unroute("**/*");
+      console.log(
+        "\n" +
+          "─".repeat(70) +
+          "\nThe form is filled and the browser is now yours.\n" +
+          "The bot has stopped driving it and will not touch it again.\n" +
+          "Check every field, attach your resume, then submit it yourself if you want to.\n" +
+          "Close the window when you are done.\n" +
+          "─".repeat(70),
+      );
+      await page.waitForEvent("close", { timeout: 0 }).catch(() => undefined);
+    } else if (options.keepOpen) {
       console.log(
         "\nThe browser is left open so you can check the filled form.\n" +
-          "Submission is still blocked in this window — apply in your own browser when you are happy.\n" +
+          "Submission is still blocked in this window — run with --handoff to submit from it.\n" +
           "Close the window to finish.",
       );
       await page.waitForEvent("close", { timeout: 0 }).catch(() => undefined);
@@ -162,7 +190,8 @@ export async function runShadowApply(options: {
 
     return result;
   } finally {
-    if (!options.keepOpen) await browser.close();
+    const stayOpen = options.keepOpen || options.handoff;
+    if (!stayOpen) await browser.close();
     else await browser.close().catch(() => undefined);
   }
 }

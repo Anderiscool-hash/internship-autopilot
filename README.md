@@ -143,7 +143,8 @@ you tick "Include closed".
 
 ```bash
 npm run shadow -- <jobId>              # fill a real form, stop before Submit
-npm run shadow -- <jobId> --keep-open  # leave the browser up to inspect
+npm run shadow -- <jobId> --keep-open  # leave the browser up, still locked
+npm run shadow -- <jobId> --handoff    # fill it, then the window is yours
 npm run shadow:verdict -- <runId> correct
 npm run shadow:verdict -- <runId> wrong "what was wrong"
 ```
@@ -154,6 +155,17 @@ at the network layer** — while shadow mode drives the page, every non-GET
 request is aborted, so an application cannot be sent even by accident. A
 submission has to be a POST to the form's own host; those are reported loudly,
 third-party beacons are only counted.
+
+There is also a **Fill this application for me** button on each job page. It
+only appears when you are using the app on the machine running it, because the
+browser window opens there — on a hosted copy it would open where nobody is
+sitting. It runs in handoff mode: the form fills itself, then the bot stops
+driving and the window is yours to check and submit.
+
+The guard is what makes handoff safe rather than a loophole. It blocks every
+non-GET request *while the bot is filling*, and lifts only after the last field
+is done — so the bot cannot submit, and you can. Nothing automated touches the
+page after the handover.
 
 Nothing is ever invented. A question with no stored answer is left blank and
 listed, per spec §16. Your verdict on each run is what spec §21 promotes an
