@@ -22,9 +22,32 @@ interface FilterBarProps {
   companies: CompanyOption[];
 }
 
+/** How many filters are currently narrowing the list. */
+function activeCount(filters: JobFilters): number {
+  return [
+    filters.q,
+    filters.companyId,
+    filters.atsType,
+    filters.remoteType,
+    filters.withinDays,
+    filters.includeClosed ? true : null,
+  ].filter((value) => value !== null && value !== false).length;
+}
+
 export function FilterBar({ filters, companies }: FilterBarProps) {
+  const active = activeCount(filters);
+
   return (
-    <form className="filters" method="get" action="/jobs">
+    /* A disclosure rather than a permanent panel. On a phone the open form
+       filled the whole first screen, so you scrolled past a screen of controls
+       to reach the thing you came for. It opens itself whenever a filter is
+       actually on, so an active filter can never be hidden from you. */
+    <details className="filters-panel" open={active > 0}>
+      <summary>
+        Filters
+        {active > 0 ? <span className="chip-count">{active} active</span> : null}
+      </summary>
+      <form className="filters" method="get" action="/jobs">
       <label className="filter">
         <span>Title contains</span>
         <input
@@ -101,10 +124,11 @@ export function FilterBar({ filters, companies }: FilterBarProps) {
         <input type="hidden" name="eligibility" value={filters.eligibility} />
       ) : null}
 
-      <div className="filter-actions">
-        <button type="submit">Apply</button>
-        <a href="/jobs">Reset</a>
-      </div>
-    </form>
+        <div className="filter-actions">
+          <button type="submit">Apply</button>
+          <a href="/jobs">Reset</a>
+        </div>
+      </form>
+    </details>
   );
 }

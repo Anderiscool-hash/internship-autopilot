@@ -52,6 +52,10 @@ function fitAbsenceReason(
 }
 
 export function JobTable({ rows, verdicts, eligibility, now }: JobTableProps) {
+  // With no profile there is no fit score for any row, so the column is a
+  // stripe of em dashes taking width from the columns that say something.
+  const showFit = eligibility !== null;
+
   if (rows.length === 0) {
     return (
       <p className="empty">
@@ -67,14 +71,35 @@ export function JobTable({ rows, verdicts, eligibility, now }: JobTableProps) {
       <table className="jobs">
         <thead>
           <tr>
-            <th scope="col">Role</th>
-            <th scope="col">Fit</th>
-            <th scope="col">Company</th>
-            <th scope="col">Location</th>
-            <th scope="col">Remote</th>
-            <th scope="col">Pay</th>
-            <th scope="col">Source</th>
-            <th scope="col">First seen</th>
+            {/* Columns carry a class rather than relying on their position:
+                hiding Fit used to shift every index after it, so the widths and
+                the narrow-screen rules silently applied to the wrong columns. */}
+            <th scope="col" className="col-role">
+              Role
+            </th>
+            {showFit ? (
+              <th scope="col" className="col-fit">
+                Fit
+              </th>
+            ) : null}
+            <th scope="col" className="col-company">
+              Company
+            </th>
+            <th scope="col" className="col-location">
+              Location
+            </th>
+            <th scope="col" className="col-remote">
+              Remote
+            </th>
+            <th scope="col" className="col-pay">
+              Pay
+            </th>
+            <th scope="col" className="col-source">
+              Source
+            </th>
+            <th scope="col" className="col-seen">
+              First seen
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -83,7 +108,7 @@ export function JobTable({ rows, verdicts, eligibility, now }: JobTableProps) {
             const eligible = eligibility?.get(job.id);
             return (
               <tr key={job.id}>
-                <td>
+                <td className="col-role">
                   {/* One flex row: a long title truncates rather than pushing
                       the badges onto a second line, which is what made row
                       heights ragged and the table hard to scan. */}
@@ -128,26 +153,33 @@ export function JobTable({ rows, verdicts, eligibility, now }: JobTableProps) {
                   </a>
                   </div>
                 </td>
-                <td>
-                  {job.fit && job.fit.score !== null ? (
-                    <span
-                      className="fit-score"
-                      title={`Scored on ${Math.round(job.fit.coverage * 100)}% of spec §12's weights.`}
-                    >
-                      {job.fit.score}%
-                    </span>
-                  ) : (
-                    <span className="fit-none" title={fitAbsenceReason(eligibility, job.id)}>
-                      —
-                    </span>
-                  )}
+                {showFit ? (
+                  <td className="col-fit">
+                    {job.fit && job.fit.score !== null ? (
+                      <span
+                        className="fit-score"
+                        title={`Scored on ${Math.round(job.fit.coverage * 100)}% of spec §12's weights.`}
+                      >
+                        {job.fit.score}%
+                      </span>
+                    ) : (
+                      <span
+                        className="fit-none"
+                        title={fitAbsenceReason(eligibility, job.id)}
+                      >
+                        —
+                      </span>
+                    )}
+                  </td>
+                ) : null}
+                <td className="col-company">{job.companyName}</td>
+                <td className="col-location">{formatLocation(job.location)}</td>
+                <td className="col-remote">{formatEnum(job.remoteType)}</td>
+                <td className="col-pay">
+                  {formatSalary(job.salaryMin, job.salaryMax, job.currency)}
                 </td>
-                <td>{job.companyName}</td>
-                <td>{formatLocation(job.location)}</td>
-                <td>{formatEnum(job.remoteType)}</td>
-                <td>{formatSalary(job.salaryMin, job.salaryMax, job.currency)}</td>
-                <td>{formatEnum(job.atsType)}</td>
-                <td title={job.firstSeenAt.toISOString()}>
+                <td className="col-source">{formatEnum(job.atsType)}</td>
+                <td className="col-seen" title={job.firstSeenAt.toISOString()}>
                   {formatAge(job.firstSeenAt, now)}
                 </td>
               </tr>

@@ -781,45 +781,37 @@ table.jobs td:first-child {
   color: var(--text-primary);
 }
 
-table.jobs th:nth-child(1),
-table.jobs td:nth-child(1) {
+.col-role {
   width: 34%;
 }
 
-table.jobs th:nth-child(3),
-table.jobs td:nth-child(3) {
+.col-company {
   width: 12%;
 }
 
-table.jobs th:nth-child(4),
-table.jobs td:nth-child(4) {
+.col-location {
   width: 18%;
 }
 
-table.jobs th:nth-child(5),
-table.jobs td:nth-child(5),
-table.jobs th:nth-child(6),
-table.jobs td:nth-child(6),
-table.jobs th:nth-child(7),
-table.jobs td:nth-child(7),
-table.jobs th:nth-child(8),
-table.jobs td:nth-child(8) {
+.col-remote,
+.col-pay,
+.col-source,
+.col-seen {
   width: 9%;
 }
 
 /* Long values in the narrow columns clip rather than wrap: a two-line pay
    range in one row makes every row in view harder to scan. */
-table.jobs td:nth-child(3),
-table.jobs td:nth-child(4),
-table.jobs td:nth-child(6) {
+.col-company,
+.col-location,
+.col-pay {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 /* Numeric and short columns hold their width; the long ones give way. */
-table.jobs th:nth-child(2),
-table.jobs td:nth-child(2) {
+.col-fit {
   text-align: right;
   width: 4rem;
 }
@@ -1373,21 +1365,103 @@ ul.ledger li:first-child {
 
 @media (max-width: 40rem) {
   .page {
-    padding: var(--space-4) var(--space-3) var(--space-6);
+    padding: var(--space-3) var(--space-3) var(--space-6);
   }
 
   .site-nav {
-    padding: 0 var(--space-3);
-    overflow-x: auto;
+    padding: 0 var(--space-2);
+    gap: 0;
   }
 
+  .site-nav a {
+    padding: var(--space-2);
+    font-size: var(--text-base);
+  }
+
+  h1 {
+    font-size: var(--text-lg);
+  }
+
+  .lede {
+    font-size: var(--text-base);
+  }
+
+  /* A two-column grid, not a flex column. As a column, `flex: 1 1 9rem` made
+     every field grow to fill the container, which put a screen and a half of
+     empty filter bar between the top of the page and the first job. */
   .filters {
-    flex-direction: column;
-    align-items: stretch;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+    align-items: end;
+    padding: var(--space-2);
+  }
+
+  .filter {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+
+  /* The search box earns the full width; the rest pair up. */
+  .filters .filter:first-child,
+  .filter-check,
+  .filter-actions {
+    grid-column: 1 / -1;
   }
 
   .filter-actions {
     margin-left: 0;
+    justify-content: flex-start;
+  }
+
+  .filter-check {
+    height: auto;
+  }
+
+  /* Eight columns do not fit a phone. Role, fit and company are what you scan
+     for; location, remote type, pay, source and age are detail you open the
+     job to get. Hidden rather than squeezed, because a squeezed table is
+     unreadable and a horizontally scrolling one hides the columns anyway —
+     just less honestly. */
+  .col-location,
+  .col-remote,
+  .col-pay,
+  .col-source,
+  .col-seen {
+    display: none;
+  }
+
+  .col-role {
+    width: auto;
+  }
+
+  .col-company {
+    width: 30%;
+  }
+
+  /* The uppercase headers are wide for their columns at this size. */
+  table.jobs th {
+    letter-spacing: 0;
+  }
+
+  /* Let a long title wrap onto a second line here — vertical space is the
+     thing a phone has, and truncating to 20 characters would be useless. */
+  .role-cell {
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+
+  .role-cell .job-title {
+    white-space: normal;
+    overflow: visible;
+  }
+
+  .board {
+    grid-template-columns: 1fr;
+  }
+
+  dl.facts {
+    gap: var(--space-3);
   }
 }
 
@@ -1402,4 +1476,59 @@ ul.ledger li:first-child {
   margin-left: auto;
   display: flex;
   align-items: center;
+}
+
+/* --- filter disclosure ---------------------------------------------------- */
+
+.filters-panel {
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.filters-panel > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.filters-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* A disclosure triangle drawn in CSS, so it matches the select chevron rather
+   than inheriting whatever the platform draws. */
+.filters-panel > summary::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-left: 4px solid var(--text-tertiary);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.1s ease;
+}
+
+.filters-panel[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.filters-panel > summary:hover {
+  color: var(--text-primary);
+}
+
+/* The form inside the disclosure keeps its own padding but drops the panel
+   chrome, which the details element now provides. */
+.filters-panel .filters {
+  margin: 0;
+  border: none;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
 }
