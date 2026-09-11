@@ -21,7 +21,26 @@ import { db } from "../src/lib/db";
 import { getProfile } from "../src/lib/candidate/store";
 import { applicationUrlFor } from "../src/lib/apply/application-url";
 import { runShadowApply } from "../src/lib/apply/shadow";
+import { worthStoring } from "../src/lib/apply/ask-plan";
+import { conceptOf } from "../src/lib/answers/concepts";
 import type { AnswerEntry } from "../src/lib/answers/match";
+
+/**
+ * Mark work-authorization, sponsorship, age and the like as legal answers.
+ *
+ * The flag matters downstream: a legal answer is never reworded (spec §16),
+ * because a paraphrase of "yes, I am authorized" is a different legal claim.
+ */
+function isLegalQuestion(question: string): boolean {
+  const concept = conceptOf(question);
+  return (
+    concept === "work-authorization" ||
+    concept === "sponsorship" ||
+    concept === "age-18" ||
+    concept === "security-clearance" ||
+    concept === "criminal-record"
+  );
+}
 
 const SHOT_DIR = resolve("./shadow-runs");
 
@@ -91,6 +110,33 @@ async function main(): Promise<void> {
     screenshotPath,
     keepOpen,
     handoff,
+    // Asking only makes sense when someone is watching the window. A run that
+    // nobody is sitting in front of would stop at the first question and wait
+    // forever.
+    ask: handoff || keepOpen || process.argv.includes("--ask"),
+
+    async onAnswer(question, answer) {
+      // Store it for next time — unless it is an answer about this employer or
+      // this particular posting, which would be wrong on the next form rather
+      // than merely unhelpful.
+      if (!worthStoring(question, job.company.name)) {
+        console.log(`  (not saved: "${question.slice(0, 50)}" is specific to this application)`);
+        return;
+      }
+
+      const existing = await db.answerBankEntry.findFirst({
+        where: { candidateId: profile.id, question },
+      });
+
+      if (existing) {
+        await db.answerBankEntry.update({ where: { id: existing.id }, data: { answer } });
+      } else {
+        await db.answerBankEntry.create({
+          data: { candidateId: profile.id, question, answer, isLegal: isLegalQuestion(question) },
+        });
+      }
+      console.log(`  saved for next time: "${question.slice(0, 50)}" -> "${answer.slice(0, 40)}"`);
+    },
   });
 
   const filled = result.outcomes.filter((o) => o.status === "filled" || o.status === "chosen");

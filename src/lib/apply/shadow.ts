@@ -31,17 +31,12 @@ import {
   type FillProfile,
   type PlannedField,
 } from "./fill-plan";
+import { askInPage } from "./ask-overlay";
+import { questionsToAsk } from "./ask-plan";
 import { readOpenForm } from "./read-form";
+import type { FieldOutcome } from "./shadow-types";
 
-/** What happened to one field when the plan met the real page. */
-export interface FieldOutcome {
-  label: string;
-  /** filled | chosen | skipped | failed */
-  status: "filled" | "chosen" | "skipped" | "failed";
-  /** The value entered, or the reason nothing was. */
-  detail: string;
-  source: PlannedField["source"];
-}
+export type { FieldOutcome } from "./shadow-types";
 
 export interface ShadowRunResult {
   url: string;
@@ -94,6 +89,18 @@ export async function runShadowApply(options: {
    * switched off wholesale.
    */
   handoff?: boolean;
+  /**
+   * Ask the person, in the browser, for the required fields nothing could
+   * fill — then put their answers in and report them for storing.
+   */
+  ask?: boolean;
+  /**
+   * Called with each answer the person gives, so the caller can decide whether
+   * it is worth keeping. The runner does not touch the database itself: what
+   * gets stored about a candidate is a decision, not a side effect of filling
+   * a form.
+   */
+  onAnswer?: (question: string, answer: string) => Promise<void>;
 }): Promise<ShadowRunResult> {
   const browser: Browser = await chromium.launch({ headless: false });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -144,6 +151,42 @@ export async function runShadowApply(options: {
     const outcomes: FieldOutcome[] = [];
     for (const item of plan.planned) {
       outcomes.push(await applyOne(page, item));
+    }
+
+    // Everything the profile and the answer bank could cover is now in. What
+    // is left is, by definition, something nobody has ever told this app — so
+    // ask, fill it, and hand the answer back to be stored. The next form that
+    // asks the same thing will not need to.
+    if (options.ask) {
+      const questions = questionsToAsk(
+        plan.planned.map((item) => item.field),
+        outcomes,
+      );
+
+      if (questions.length > 0) {
+        console.log(
+          `\n${questions.length} field${questions.length === 1 ? "" : "s"} need you. ` +
+            "Answer them in the browser window — each answer is saved for future applications.",
+        );
+      }
+
+      await askInPage(page, questions, async (item, answer) => {
+        // Put it in the form straight away, using the same routine as the
+        // automatic pass so a dropdown is still chosen rather than typed at.
+        const filled = await applyOne(page, {
+          field: item.field,
+          action: { type: "fill", value: answer },
+          source: "none",
+        });
+
+        // Replace the earlier "could not fill" with what actually happened.
+        const index = outcomes.findIndex((outcome) => outcome.label === item.question);
+        const recorded: FieldOutcome = { ...filled, source: "asked" };
+        if (index >= 0) outcomes[index] = recorded;
+        else outcomes.push(recorded);
+
+        await options.onAnswer?.(item.question, answer);
+      });
     }
 
     await page.screenshot({ path: options.screenshotPath, fullPage: true });

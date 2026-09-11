@@ -156,6 +156,17 @@ request is aborted, so an application cannot be sent even by accident. A
 submission has to be a POST to the form's own host; those are reported loudly,
 third-party beacons are only counted.
 
+It fills what it can, then **asks you for the rest — in the browser window you
+are already looking at**. A panel appears at the bottom right with one question
+at a time: the employer's wording, why it is asking, and either a text box or
+the dropdown's real options. Type or choose, and it goes straight into the
+form. Each answer is also saved to your answer bank, so the next application
+that asks the same thing fills itself.
+
+Answers about *this* employer ("have you worked at Coinbase before?") or *this*
+posting ("which team?") are deliberately not saved — reusing those would put
+last week's answer on this week's form.
+
 There is also a **Fill this application for me** button on each job page. It
 only appears when you are using the app on the machine running it, because the
 browser window opens there — on a hosted copy it would open where nobody is
