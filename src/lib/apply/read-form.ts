@@ -175,6 +175,12 @@ async function readFields(page: Page): Promise<ReadFormResult["fields"]> {
         // Hidden and structural inputs are not questions.
         if (type === "hidden" || type === "submit" || type === "button") return false;
 
+        // A search box is part of a widget — the country picker inside a phone
+        // field, a dropdown's type-ahead — never an application question. One
+        // showed up in a live run as "Iti 0 search input" and was reported as
+        // a question nobody had answered.
+        if (type === "search") return false;
+
         // An input with neither a name nor an id is not submitted with the
         // form at all — browsers only serialize named controls. On Greenhouse
         // these are the search boxes inside each dropdown widget. Counting

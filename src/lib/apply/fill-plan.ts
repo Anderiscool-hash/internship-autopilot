@@ -105,14 +105,44 @@ export function profileValueFor(label: string, profile: FillProfile): string | n
   // into Coinbase's Country field — a plausible-looking value that is simply
   // wrong, which is the worst kind. The profile does not know a country, so
   // nothing is offered for one.
-  if (/country/.test(text)) return null;
-  if (/city|state|location|address|zip|postal/.test(text)) return profile.address;
+  if (/\bcountry\b/.test(text)) return null;
+  // A City field is not an address field. The profile keeps one free-text
+  // location line, which may be a full "Brooklyn, NY" or may be just a street
+  // — a live run put "108 autum ave" into Coinbase's City box. So a city is
+  // offered only when one can actually be read out of the address.
+  if (/\bcity\b/.test(text)) return cityFrom(profile.address);
+  if (/state|location|address|zip|postal/.test(text)) return profile.address;
   if (/graduation|grad date/.test(text)) {
     if (!profile.graduationDate) return null;
     const date = profile.graduationDate;
     return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
   }
   return null;
+}
+
+/**
+ * The city part of a free-text address, if there is one.
+ *
+ * "Brooklyn, NY" -> "Brooklyn". "108 autumn ave" -> null, because a street is
+ * not a city and guessing would put a plausible wrong value on an application.
+ */
+export function cityFrom(address: string | null): string | null {
+  if (!address) return null;
+
+  const parts = address
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+  // No comma: one run-on line, and nothing here can tell a city from a street.
+  if (parts.length < 2) return null;
+
+  // "Brooklyn, NY" and "108 Autumn Ave, Brooklyn, NY" both put the city
+  // immediately before a trailing state or country.
+  const city = parts[parts.length - 2] as string;
+
+  // A street number in that position means the address has no city in it.
+  return /^\d/.test(city) ? null : city;
 }
 
 /**

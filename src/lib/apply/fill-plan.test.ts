@@ -12,6 +12,7 @@ import { describe, it, expect } from "vitest";
 import type { AnswerEntry } from "../answers/match";
 import {
   buildFillPlan,
+  cityFrom,
   matchOption,
   profileValueFor,
   type FillableField,
@@ -75,7 +76,8 @@ describe("profileValueFor", () => {
     // "Country" and filled it with "108 autumn ave". A plausible wrong value
     // is worse than a blank one, because nobody re-reads it.
     expect(profileValueFor("Country", PROFILE)).toBeNull();
-    expect(profileValueFor("Location (City)", PROFILE)).toBe("Brooklyn, NY");
+    // A City field gets a city, not the whole address line.
+    expect(profileValueFor("Location (City)", PROFILE)).toBe("Brooklyn");
   });
 
   it("does not answer Discipline with the whole degree string", () => {
@@ -238,5 +240,23 @@ describe("buildFillPlan", () => {
       ANSWERS,
     );
     expect(plan.planned[0]?.action.type).toBe("skip");
+  });
+});
+
+describe("cityFrom", () => {
+  it("reads the city out of a full address", () => {
+    expect(cityFrom("Brooklyn, NY")).toBe("Brooklyn");
+    expect(cityFrom("108 Autumn Ave, Brooklyn, NY")).toBe("Brooklyn");
+  });
+
+  it("returns null when the address is just a street", () => {
+    // From a live run: "108 autum ave" went into Coinbase's City field.
+    expect(cityFrom("108 autum ave")).toBeNull();
+    expect(cityFrom("108 autum ave, 11208")).toBeNull();
+  });
+
+  it("returns null for nothing", () => {
+    expect(cityFrom(null)).toBeNull();
+    expect(cityFrom("")).toBeNull();
   });
 });

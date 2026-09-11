@@ -12,6 +12,8 @@
  * Pure functions; the stored entries are passed in.
  */
 
+import { sameQuestion } from "./concepts";
+
 /** The stored answer, as much of it as matching needs. */
 export interface AnswerEntry {
   id: string;
@@ -98,6 +100,25 @@ export function findAnswer(
   entries: AnswerEntry[],
   threshold: number = MATCH_THRESHOLD,
 ): AnswerMatch | null {
+  // Concept matching first. Word overlap has a predictable blind spot — it
+  // punishes the longer phrasing — and the standard legal questions are
+  // exactly where employers vary the wording most. A live shadow run left a
+  // stored sponsorship answer unused because the employer's version of the
+  // same question scored 0.57. See ./concepts.ts, including what it refuses
+  // to match and why.
+  for (const entry of entries) {
+    if (sameQuestion(question, entry.question)) {
+      // `exact` still means "these are the same words", not merely the same
+      // question — callers use it to decide how much to trust a match without
+      // re-reading it.
+      return {
+        entry,
+        score: 1,
+        exact: questionSimilarity(question, entry.question) === 1,
+      };
+    }
+  }
+
   let best: AnswerMatch | null = null;
 
   for (const entry of entries) {
