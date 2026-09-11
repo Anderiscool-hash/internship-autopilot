@@ -14,6 +14,7 @@ import {
   buildFillPlan,
   cityFrom,
   matchOption,
+  matchOptionForLabel,
   profileValueFor,
   type FillableField,
   type FillProfile,
@@ -258,5 +259,48 @@ describe("cityFrom", () => {
   it("returns null for nothing", () => {
     expect(cityFrom(null)).toBeNull();
     expect(cityFrom("")).toBeNull();
+  });
+});
+
+describe("matchOptionForLabel", () => {
+  const SCHOOLS = ["Aalto University", "John Jay College of Criminal Justice", "Yale University"];
+  const DEGREES = [
+    "Associate's Degree",
+    "Bachelor's Degree",
+    "Master's Degree",
+    "Doctor of Philosophy (Ph.D.)",
+  ];
+
+  it("ignores a parenthetical the list does not carry", () => {
+    // From a live run: the profile says "(CUNY)", the dropdown does not.
+    expect(
+      matchOptionForLabel(
+        "John Jay College of Criminal Justice (CUNY)",
+        SCHOOLS,
+        "School",
+      ),
+    ).toBe("John Jay College of Criminal Justice");
+  });
+
+  it("maps a written degree onto the list's fixed vocabulary", () => {
+    // "B.S. in Computer Science & Cybersecurity" is not an option anywhere,
+    // but the level it states is.
+    expect(
+      matchOptionForLabel("B.S. in Computer Science & Cybersecurity", DEGREES, "Degree"),
+    ).toBe("Bachelor's Degree");
+    expect(matchOptionForLabel("MS Data Science", DEGREES, "Degree")).toBe("Master's Degree");
+    expect(matchOptionForLabel("PhD Physics", DEGREES, "Degree")).toBe(
+      "Doctor of Philosophy (Ph.D.)",
+    );
+  });
+
+  it("only maps degrees on a degree field", () => {
+    // The same mapping on a "School" field would be nonsense.
+    expect(matchOptionForLabel("BS Computer Science", DEGREES, "School")).toBeNull();
+  });
+
+  it("still refuses when nothing matches", () => {
+    expect(matchOptionForLabel("Hogwarts", SCHOOLS, "School")).toBeNull();
+    expect(matchOptionForLabel("Some certificate", DEGREES, "Degree")).toBeNull();
   });
 });

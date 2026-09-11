@@ -14,6 +14,7 @@
  */
 
 import { findAnswer, type AnswerEntry } from "../answers/match";
+import { inferEducationLevel } from "../eligibility/engine";
 import type { FieldKind } from "./classify-field";
 
 /** A form field, as read from the page. */
@@ -29,6 +30,11 @@ export interface FillableField {
   inputType: string;
   /** For selects and choice groups: the option labels available. */
   options: string[];
+  /**
+   * A JS combobox: typing does not select. The runner has to open the list and
+   * click the option, and say so when it cannot.
+   */
+  isCombobox?: boolean;
 }
 
 /** What the runner should do with one field. */
@@ -171,6 +177,57 @@ export function matchOption(value: string, options: string[]): string | null {
   // Only when it is unambiguous. "Yes" matching both "Yes" and "Yes, with
   // conditions" is not an answer, it is a coin toss.
   return prefixed.length === 1 ? (prefixed[0] as string) : null;
+}
+
+/**
+ * Match a stored answer against a dropdown's real options, trying the
+ * forgiving-but-still-honest variations.
+ *
+ * Found by live runs: a profile says "John Jay College of Criminal Justice
+ * (CUNY)" and the list offers "John Jay College of Criminal Justice"; a
+ * profile says "B.S. in Computer Science & Cybersecurity" and the list offers
+ * "Bachelor's Degree". Both were previously typed in as free text, which made
+ * them look filled while the form held nothing.
+ *
+ * Every step here still requires the candidate's own words to pick the option
+ * — none of it invents a value. Where nothing matches, it says so.
+ */
+export function matchOptionForLabel(
+  value: string,
+  options: string[],
+  label: string,
+): string | null {
+  const direct = matchOption(value, options);
+  if (direct) return direct;
+
+  // A parenthetical qualifier the list does not carry: "(CUNY)", "(Main
+  // Campus)". Dropping it changes nothing about which institution is meant.
+  const withoutParens = value.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+  if (withoutParens !== value) {
+    const stripped = matchOption(withoutParens, options);
+    if (stripped) return stripped;
+  }
+
+  // Degree lists are a fixed vocabulary — "Bachelor's Degree", "Master's
+  // Degree" — and a profile stores the degree as the candidate wrote it. The
+  // level is already inferred from that same string for eligibility (spec
+  // §11), so the two agree by construction.
+  if (/degree|education level/i.test(label)) {
+    const level = inferEducationLevel(value);
+    if (level) {
+      const wanted: Record<string, RegExp> = {
+        associates: /associate/i,
+        bachelors: /bachelor/i,
+        masters: /master/i,
+        phd: /doctor|ph\.?d/i,
+      };
+      const pattern = wanted[level];
+      const found = pattern ? options.find((option) => pattern.test(option)) : undefined;
+      if (found) return found;
+    }
+  }
+
+  return null;
 }
 
 /** Text-ish controls that take a typed value. */

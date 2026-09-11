@@ -30,6 +30,12 @@ const TIMEOUT_MS = 30_000;
 export interface ReadFormResult extends Omit<ParsedForm, "fields"> {
   fields: (Omit<ParsedField, "answered"> & {
     kind: FieldKind;
+    /**
+     * True when the control is a JS combobox rather than a plain input.
+     * Typing into one of these does not choose anything — the value has to be
+     * picked from the popup list, or the form sees an empty field.
+     */
+    isCombobox: boolean;
     /** DOM id, when there is one — the preferred selector. */
     elementId: string;
     /** name attribute; the fallback selector and the radio-group key. */
@@ -273,8 +279,15 @@ async function readFields(page: Page): Promise<ReadFormResult["fields"]> {
             .filter((text) => text.length > 0);
         }
 
+        const role = element.getAttribute("role");
+        const isCombobox =
+          role === "combobox" ||
+          element.getAttribute("aria-autocomplete") === "list" ||
+          element.getAttribute("aria-haspopup") === "true";
+
         return {
           rawLabel: resolved,
+          isCombobox,
           elementId: element.id ?? "",
           options,
           groupName: (element as HTMLInputElement).name ?? "",
@@ -318,6 +331,7 @@ async function readFields(page: Page): Promise<ReadFormResult["fields"]> {
         kind: classifyFieldLabel(label, field.inputType),
         required:
           field.htmlRequired || looksRequired(field.rawLabel, field.ariaRequired),
+        isCombobox: field.isCombobox,
         elementId: field.elementId,
         name: field.groupName,
         inputType: field.inputType,
