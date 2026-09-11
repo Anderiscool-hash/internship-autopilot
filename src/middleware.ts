@@ -45,9 +45,11 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   /*
-   * Everything except the login screen itself, Next's own assets, and the
-   * favicon — a login page behind a login is a redirect loop, and blocking the
-   * stylesheet would serve an unstyled login form.
+   * Everything except: the login screen itself (a login behind a login is a
+   * redirect loop), Next's own assets (blocking the stylesheet would serve an
+   * unstyled login form), the favicon, and the health endpoint — a platform's
+   * health checker cannot log in, and that route reveals nothing beyond
+   * up/down and a row count.
    */
-  matcher: ["/((?!login|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!login|api/health|_next/static|_next/image|favicon.ico).*)"],
 };

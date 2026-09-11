@@ -29,7 +29,9 @@
     "scan": "tsx scripts/scan.ts",
     "eligibility:report": "tsx scripts/eligibility-report.ts",
     "extract:backfill": "tsx scripts/extract-backfill.ts",
-    "preflight": "tsx scripts/preflight.ts"
+    "preflight": "tsx scripts/preflight.ts",
+    "data:export": "tsx scripts/export-data.ts",
+    "data:import": "tsx scripts/import-data.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

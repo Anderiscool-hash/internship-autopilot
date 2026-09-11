@@ -38,3 +38,7 @@ tmp/
 
 # TypeScript incremental build cache
 tsconfig.tsbuildinfo
+
+# Data exports hold the profile and Truth Ledger — never commit one.
+backup*.json
+.shots/

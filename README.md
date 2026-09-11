@@ -28,6 +28,13 @@ discover → normalize → filter → eligibility → fit score → tailor docs
 | Files              | Local in dev, S3 in prod      |
 | Deployment         | AWS (EC2 → RDS/S3 → ECS)      |
 
+## Putting it on a server
+
+`docs/DEPLOYING.md` covers it: what has to run (three things, not one — and
+the scanner cannot be serverless), the environment variables, moving your data
+to a hosted database with `npm run data:export` / `data:import`, the Dockerfile,
+and the health endpoint.
+
 ## How it fits together
 
 `docs/ARCHITECTURE.md` maps each spec section to the module that implements it,
