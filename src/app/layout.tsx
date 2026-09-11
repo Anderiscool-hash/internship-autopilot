@@ -40,6 +40,7 @@ export default async function RootLayout({
         {signedIn ? (
         <nav className="site-nav">
           <a href="/jobs">Jobs</a>
+          <a href="/companies">Companies</a>
           <a href="/applications">Applications</a>
           <a href="/answers">Answers</a>
           <a href="/profile">Profile</a>

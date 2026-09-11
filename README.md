@@ -122,6 +122,13 @@ reaches your profile until you review it and press Save — the
 Truth Ledger (spec §3) is the only source of claims the AI is ever allowed to
 make on your behalf, so nothing downstream works until it has something in it.
 
+`/companies` is the registry (spec §4) — the boards the scanner watches, and
+the only lever that changes how many internships this finds. Adding one checks
+the board live first and names a posting it found, because a wrong slug does
+not error: these platforms return an empty list for a board that does not
+exist, and a slug belonging to another company returns *their* jobs under the
+name you typed.
+
 The dashboard lives at `/jobs`: every discovered posting, newest first,
 filterable by title, company, ATS, remote type, how recently it was first seen,
 and the student-role classifier's verdict. Once your profile exists it also

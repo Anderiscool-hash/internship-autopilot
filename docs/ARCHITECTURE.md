@@ -43,7 +43,7 @@ the test suite needs no database and CI does not run one.
 | --- | --- | --- |
 | §2 Unified profile | Candidate record, form parsing | `src/lib/candidate/`, `src/app/profile/` |
 | §3 Truth Ledger | Facts the AI may draw on | `src/app/profile/truth-ledger.tsx` |
-| §4 Company registry | Boards to scan, ATS identifiers | `prisma/schema.prisma`, `prisma/seed.ts` |
+| §4 Company registry | Boards to scan, verified before saving | `src/lib/companies/`, `src/app/companies/` |
 | §5 Continuous discovery | Adaptive polling, backoff, removals | `src/lib/scan/`, `scripts/scan.ts` |
 | §6–7 Sources, normalization | Greenhouse/Lever/Ashby clients | `src/lib/ats/` |
 | §8 Deduplication | Fingerprint + unique constraint | `src/lib/jobs/fingerprint.ts` |

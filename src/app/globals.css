@@ -1532,3 +1532,29 @@ ul.ledger li:first-child {
   border-radius: 0;
   background: transparent;
 }
+
+/* --- inline table forms (company registry) -------------------------------- */
+
+.inline-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.inline-form input[type="number"] {
+  width: 3.5rem;
+  height: 26px;
+  padding: 0 var(--space-1);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.row-actions {
+  display: flex;
+  gap: var(--space-1);
+}
