@@ -45,3 +45,4 @@ backup*.json
 
 # Shadow-mode screenshots contain your filled-in personal details.
 shadow-runs/
+storage/

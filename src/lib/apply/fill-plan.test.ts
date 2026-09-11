@@ -176,7 +176,10 @@ describe("buildFillPlan", () => {
     expect(plan.planned[0]?.action.type).toBe("skip");
   });
 
-  it("always skips file uploads", () => {
+  // With no documents passed, an upload is still skipped — but the reason now
+  // tells the person what to do about it. See fill-plan-documents.test.ts for
+  // the attaching side.
+  it("skips a file upload when no document is saved, and says which one", () => {
     const plan = buildFillPlan(
       [field({ label: "Resume", kind: "file", inputType: "file" })],
       PROFILE,
@@ -184,7 +187,7 @@ describe("buildFillPlan", () => {
     );
     expect(plan.planned[0]?.action).toEqual({
       type: "skip",
-      reason: "Document uploads are not built yet — attach this yourself.",
+      reason: "No resume is saved. Upload one on the profile screen.",
     });
   });
 

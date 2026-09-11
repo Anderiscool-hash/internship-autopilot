@@ -13,6 +13,8 @@ import { aiUnavailableReason } from "@/lib/ai";
 import type { ResumeSuggestions } from "@/lib/resume/parse-fields";
 import { ProfileForm } from "./profile-form";
 import { ResumeImport } from "./resume-import";
+import { Documents } from "./documents";
+import { listDocuments } from "@/lib/documents/store";
 import { TruthLedger } from "./truth-ledger";
 
 export const dynamic = "force-dynamic";
@@ -53,6 +55,10 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
   } catch (error) {
     dbError = error instanceof Error ? error.message : String(error);
   }
+
+  // What is on file to attach to an application. Empty until the profile
+  // exists, since a document belongs to a person.
+  const documents = profile ? await listDocuments(db, profile.id) : [];
 
   // A resume import in the URL means "show me what you read, filled into the
   // form". Nothing from it has touched the profile — the user reviews the
@@ -123,6 +129,8 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
       ) : null}
 
       <ResumeImport aiOff={aiOff} importedFile={importedFile} />
+
+      <Documents documents={documents} />
 
       {importedFile ? (
         <div className="notice notice-ok">

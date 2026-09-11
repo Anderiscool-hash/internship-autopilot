@@ -195,6 +195,15 @@ async function readFields(page: Page): Promise<ReadFormResult["fields"]> {
         const name = (element as HTMLInputElement).name ?? "";
         if (name.length === 0 && element.id.length === 0) return false;
 
+        // A file input is the one control that is *expected* to be invisible.
+        // Greenhouse, Lever and Workday all hide the real <input type="file">
+        // and show a styled "Attach" button in its place, so applying the
+        // visibility rule below would drop every upload field on every major
+        // ATS — including the resume field, which is required on nearly all of
+        // them. It has a name or an id (checked above) and a label, so it is a
+        // real question however it is painted.
+        if (type === "file") return true;
+
         const style = window.getComputedStyle(element);
         return style.display !== "none" && style.visibility !== "hidden";
       })

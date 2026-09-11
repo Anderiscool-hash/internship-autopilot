@@ -13,8 +13,13 @@ import type { PlannedField } from "./fill-plan";
 /** What happened to one field when the plan met the real page. */
 export interface FieldOutcome {
   label: string;
-  status: "filled" | "chosen" | "skipped" | "failed" | "answered";
+  status: "filled" | "chosen" | "skipped" | "failed" | "answered" | "attached";
   /** The value entered, or the reason nothing was. */
   detail: string;
-  source: PlannedField["source"] | "asked";
+  /**
+   * Where the value came from. "email" means a verification code read out of
+   * the candidate's mailbox — worth distinguishing, because it is the one
+   * source the candidate did not type and cannot check at a glance.
+   */
+  source: PlannedField["source"] | "asked" | "document" | "email";
 }

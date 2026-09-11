@@ -23,15 +23,19 @@
  * ─────────────────────────────────────────────────────────────────────────
  */
 
+import { existsSync, readFileSync } from "node:fs";
 import { chromium, type Browser, type Page } from "playwright";
 import type { AnswerEntry } from "../answers/match";
+import { describeKind, type DocumentKind } from "../documents/kind-for-field";
+import { isVerificationField } from "../email/detect-field";
+import { InboxError, waitForVerification, type InboxConfig } from "../email/inbox";
 import {
   buildFillPlan,
   matchOptionForLabel,
   type FillProfile,
   type PlannedField,
 } from "./fill-plan";
-import { askInPage } from "./ask-overlay";
+import { askInPage, showStatus } from "./ask-overlay";
 import { questionsToAsk } from "./ask-plan";
 import { readOpenForm } from "./read-form";
 import type { FieldOutcome } from "./shadow-types";
@@ -73,6 +77,13 @@ export async function runShadowApply(options: {
   url: string;
   profile: FillProfile;
   answers: AnswerEntry[];
+  /**
+   * The candidate's saved documents, by kind. A file input gets the one its
+   * label names; an empty map means every upload is left for the human.
+   */
+  documents?: Partial<
+    Record<DocumentKind, { absolutePath: string; filename: string; mimeType?: string }>
+  >;
   screenshotPath: string;
   /** Leave the browser open when done, so the human can check the result. */
   keepOpen?: boolean;
@@ -101,6 +112,14 @@ export async function runShadowApply(options: {
    * a form.
    */
   onAnswer?: (question: string, answer: string) => Promise<void>;
+  /**
+   * Fetch an emailed verification code from the candidate's mailbox instead of
+   * making them go and find it.
+   *
+   * Omit it and nothing connects to any mailbox — the field is simply one more
+   * question for the person, which is what it was before.
+   */
+  verification?: VerificationOptions;
 }): Promise<ShadowRunResult> {
   const browser: Browser = await chromium.launch({ headless: false });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -146,11 +165,18 @@ export async function runShadowApply(options: {
       })),
       options.profile,
       options.answers,
+      options.documents ?? {},
     );
 
     const outcomes: FieldOutcome[] = [];
     for (const item of plan.planned) {
       outcomes.push(await applyOne(page, item));
+    }
+
+    // A field waiting on an emailed code, before the person is asked for
+    // anything: if the mailbox can supply it, there is no question to put.
+    if (options.verification) {
+      await resolveVerificationFields(page, plan.planned, outcomes, options.verification);
     }
 
     // Everything the profile and the answer bank could cover is now in. What
@@ -275,6 +301,10 @@ async function applyOne(page: Page, item: PlannedField): Promise<FieldOutcome> {
     if (action.type === "select") {
       await locator.selectOption({ label: action.option }, { timeout: 5_000 });
       return { label: field.label, status: "chosen", detail: action.option, source };
+    }
+
+    if (action.type === "attach") {
+      return await attachDocument(page, item, action);
     }
 
     // A choice group: click the option whose visible label matches the stored
@@ -452,4 +482,253 @@ function safeHost(url: string): string {
 /** Minimal CSS identifier escaping for ids and names taken from a page. */
 function cssEscape(value: string): string {
   return value.replace(/["\\\]\[]/g, "\\$&");
+}
+
+/**
+ * Attach a stored document to a file input, and confirm the page took it.
+ *
+ * Two things make this harder than it sounds.
+ *
+ * First, almost no modern ATS shows its real <input type="file">. Greenhouse,
+ * Lever and Workday all hide it behind a styled "Attach" button, and a hidden
+ * input fails Playwright's actionability check. So when the direct attempt
+ * times out, the input is unhidden just long enough to receive the file.
+ *
+ * Second — and this is the part worth the code — the attachment is read back
+ * from `input.files` afterwards. Setting files on a detached or replaced input
+ * succeeds silently and attaches nothing, which would be reported as a filled
+ * resume field on a form that has no resume on it. The same lesson the
+ * comboboxes taught: whether the page registered it is a different question
+ * from whether the call returned.
+ */
+async function attachDocument(
+  page: Page,
+  item: PlannedField,
+  action: { path: string; filename: string; mimeType: string; kind: DocumentKind },
+): Promise<FieldOutcome> {
+  const { field, source } = item;
+  const { path, filename, mimeType, kind } = action;
+  const label = field.label;
+
+  if (!existsSync(path)) {
+    return {
+      label,
+      status: "failed",
+      detail: `The saved ${describeKind(kind)} is missing from disk (${filename}). Upload it again on the profile screen.`,
+      source,
+    };
+  }
+
+  // Address the file input directly. locatorFor targets the labelled control,
+  // which on these forms is often the styled button rather than the input.
+  const input = fileInputFor(page, field);
+
+  // Upload under the name the candidate gave it, not the name it has on disk.
+  //
+  // Files are stored content-addressed — "resume-0ed549af61853231.pdf" — which
+  // is right for the folder and wrong for an employer: attaching the path
+  // directly means a recruiter opens an attachment named after a hash. So the
+  // bytes are read and handed over with the original filename.
+  const upload = {
+    name: filename,
+    mimeType: mimeType || "application/octet-stream",
+    buffer: readFileSync(path),
+  };
+
+  try {
+    await input.setInputFiles(upload, { timeout: 5_000 });
+  } catch {
+    // Hidden behind a styled button. Reveal it, attach, and put it back — the
+    // page's own styling is restored either way.
+    const revealed = await input
+      .evaluate((element: HTMLElement) => {
+        const previous = element.getAttribute("style") ?? "";
+        element.setAttribute(
+          "style",
+          `${previous};display:block!important;visibility:visible!important;opacity:1!important;width:1px;height:1px;position:fixed;left:0;top:0`,
+        );
+        return previous;
+      })
+      .catch(() => null);
+
+    if (revealed === null) {
+      return {
+        label,
+        status: "failed",
+        detail: "Could not find the file input behind this upload button.",
+        source,
+      };
+    }
+
+    try {
+      await input.setInputFiles(upload, { timeout: 5_000 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message.split("\n")[0] : String(error);
+      return { label, status: "failed", detail: message ?? "unknown error", source };
+    } finally {
+      await input
+        .evaluate((element: HTMLElement, style: string) => {
+          if (style) element.setAttribute("style", style);
+          else element.removeAttribute("style");
+        }, revealed)
+        .catch(() => undefined);
+    }
+  }
+
+  // Read it back. This is the check that matters.
+  const attached = await input
+    .evaluate((element: HTMLInputElement) => element.files?.[0]?.name ?? "")
+    .catch(() => "");
+
+  if (attached.length === 0) {
+    return {
+      label,
+      status: "failed",
+      detail: `The page did not take the ${describeKind(kind)} — attach ${filename} yourself.`,
+      source,
+    };
+  }
+
+  return { label, status: "attached", detail: `${attached} (${describeKind(kind)})`, source };
+}
+
+/**
+ * Find the real <input type="file"> for a labelled upload control.
+ *
+ * The label on these forms usually belongs to a button or a drop zone, not to
+ * the input, so the input is looked up by id or name first and only then by
+ * position within the labelled block.
+ */
+function fileInputFor(page: Page, field: PlannedField["field"]) {
+  if (field.elementId) {
+    const byId = page.locator(`input[type="file"]#${cssEscape(field.elementId)}`);
+    return byId.first();
+  }
+  if (field.name) {
+    return page.locator(`input[type="file"][name="${cssEscape(field.name)}"]`).first();
+  }
+  return page.locator('input[type="file"]').first();
+}
+
+/** What the runner needs in order to fetch a code from a mailbox. */
+export interface VerificationOptions {
+  config: InboxConfig;
+  /** Only mail after this is read. Normally when the run started. */
+  since: Date;
+  /** Narrow the search to this sending domain when known. */
+  fromDomain?: string;
+  /** How long to wait for the mail before giving up and asking. */
+  timeoutMs?: number;
+}
+
+/**
+ * Fill any field that is waiting on an emailed code.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHEN THIS CAN AND CANNOT WORK — worth understanding before trusting it.
+ *
+ * A code only arrives because something asked the portal to send one, and
+ * under the submit guard that something cannot be this code: requesting a code
+ * is a POST, and every POST is blocked while the bot drives the page. So in a
+ * plain shadow run the mail never comes and this times out, by design.
+ *
+ * Where it earns its place is `--handoff`: the person clicks "send me a code"
+ * in the window themselves, and instead of switching to a mail client, reading
+ * six digits and switching back, the code is already in the box when they look
+ * at it.
+ *
+ * The alternative — lifting the guard so the bot could request the code — was
+ * rejected. A guard with an exception in it is not a guard.
+ * ─────────────────────────────────────────────────────────────────────────
+ */
+async function resolveVerificationFields(
+  page: Page,
+  planned: PlannedField[],
+  outcomes: FieldOutcome[],
+  options: VerificationOptions,
+): Promise<void> {
+  const waiting = planned.filter(
+    (item) =>
+      isVerificationField(item.field.label) &&
+      // Only one that is actually still empty. A code the profile somehow
+      // filled is not a reason to open a mailbox.
+      outcomes.find((outcome) => outcome.label === item.field.label)?.status === "skipped",
+  );
+
+  if (waiting.length === 0) return;
+
+  for (const item of waiting) {
+    await showStatus(
+      page,
+      `Waiting for the verification code in your email (up to ${Math.round(
+        (options.timeoutMs ?? 120_000) / 1000,
+      )}s)...`,
+    );
+    console.log(`\nWatching your mailbox for the code for "${item.field.label}".`);
+
+    let found = null;
+    try {
+      found = await waitForVerification({
+        config: options.config,
+        since: options.since,
+        fromDomain: options.fromDomain,
+        timeoutMs: options.timeoutMs,
+      });
+    } catch (error) {
+      // A mailbox that cannot be reached is reported and the person is asked
+      // instead. It is not a reason to fail the run.
+      const detail = error instanceof InboxError ? error.message : String(error);
+      await showStatus(page, null);
+      console.log(`  Could not read the mailbox: ${detail}`);
+      record(outcomes, {
+        label: item.field.label,
+        status: "skipped",
+        detail: `Mailbox unreachable, so the code was not fetched: ${detail}`,
+        source: "none",
+      });
+      continue;
+    }
+
+    await showStatus(page, null);
+
+    if (found === null) {
+      console.log("  No verification mail arrived. You will be asked for the code instead.");
+      record(outcomes, {
+        label: item.field.label,
+        status: "skipped",
+        detail:
+          "No verification email arrived. If the form has not sent one yet, request it in the window.",
+        source: "none",
+      });
+      continue;
+    }
+
+    if (found.kind === "link") {
+      // Not followed. Navigating away from a half-filled form loses everything
+      // typed into it, and this run has just spent a minute filling it.
+      console.log(`  The mail carried a confirmation link rather than a code: ${found.value}`);
+      record(outcomes, {
+        label: item.field.label,
+        status: "skipped",
+        detail: `A confirmation link arrived instead of a code — open it yourself: ${found.value}`,
+        source: "none",
+      });
+      continue;
+    }
+
+    const filled = await applyOne(page, {
+      field: item.field,
+      action: { type: "fill", value: found.value },
+      source: "none",
+    });
+    console.log(`  Code ${found.value} from "${found.subject}" (${found.from}).`);
+    record(outcomes, { ...filled, source: "email" });
+  }
+}
+
+/** Replace a field's earlier outcome, or add it when it had none. */
+function record(outcomes: FieldOutcome[], outcome: FieldOutcome): void {
+  const index = outcomes.findIndex((existing) => existing.label === outcome.label);
+  if (index >= 0) outcomes[index] = outcome;
+  else outcomes.push(outcome);
 }

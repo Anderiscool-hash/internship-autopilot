@@ -200,3 +200,52 @@ export async function askInPage(
 
   return results;
 }
+
+/** The status banner, as browser source. Same reason as PANEL_SCRIPT above. */
+const STATUS_SCRIPT = `
+window.__autopilotStatus = function (message) {
+  var existing = document.getElementById("autopilot-status");
+  if (message === null) {
+    if (existing) existing.remove();
+    return;
+  }
+  var banner = existing || document.createElement("div");
+  banner.id = "autopilot-status";
+  banner.style.cssText = [
+    "position:fixed", "right:16px", "bottom:16px", "z-index:2147483646",
+    "width:380px", "max-width:calc(100vw - 32px)",
+    "background:#0d1117", "color:#e6edf3",
+    "border:1px solid #30363d", "border-radius:10px",
+    "box-shadow:0 8px 32px rgba(0,0,0,.45)",
+    "font:13px/1.5 'Segoe UI',system-ui,sans-serif", "padding:12px 14px"
+  ].join(";");
+  banner.textContent = message;
+  if (!existing) document.body.appendChild(banner);
+};
+`;
+
+/**
+ * Show a one-line status in the page, or clear it with null.
+ *
+ * The person is looking at the browser window, not at a terminal — a run that
+ * pauses for ninety seconds waiting on an email has to say so where they can
+ * see it, or it just looks frozen.
+ */
+export async function showStatus(page: Page, message: string | null): Promise<void> {
+  await page
+    .evaluate(
+      ([source, text]) => {
+        const holder = window as unknown as Record<string, unknown>;
+        if (typeof holder.__autopilotStatus !== "function") {
+          // Injected by evaluating the source, not by addScriptTag: this can
+          // be called after a navigation, when any previously added tag is
+          // gone along with the old document.
+          const install = new Function(source as string);
+          install();
+        }
+        (holder.__autopilotStatus as (value: string | null) => void)(text as string | null);
+      },
+      [STATUS_SCRIPT, message] as const,
+    )
+    .catch(() => undefined);
+}

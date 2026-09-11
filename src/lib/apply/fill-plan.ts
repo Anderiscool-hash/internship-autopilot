@@ -14,6 +14,7 @@
  */
 
 import { findAnswer, type AnswerEntry } from "../answers/match";
+import { describeKind, documentKindForField, type DocumentKind } from "../documents/kind-for-field";
 import { inferEducationLevel } from "../eligibility/engine";
 import type { FieldKind } from "./classify-field";
 
@@ -45,6 +46,8 @@ export type FillAction =
   | { type: "select"; value: string; option: string }
   /** Click one option of a radio/checkbox group. */
   | { type: "choose"; value: string; option: string }
+  /** Attach a stored document to a file input. */
+  | { type: "attach"; path: string; filename: string; mimeType: string; kind: DocumentKind }
   /** Leave it alone, and say why. */
   | { type: "skip"; reason: string };
 
@@ -53,7 +56,7 @@ export interface PlannedField {
   field: FillableField;
   action: FillAction;
   /** Where the value came from, for the review screen. */
-  source: "profile" | "answer-bank" | "none";
+  source: "profile" | "answer-bank" | "none" | "document";
 }
 
 export interface FillPlan {
@@ -238,17 +241,55 @@ export function buildFillPlan(
   fields: FillableField[],
   profile: FillProfile,
   answers: AnswerEntry[],
+  /**
+   * The candidate's stored documents, by kind. Passed in rather than looked up
+   * so this stays pure and testable: what is on disk is the caller's problem.
+   */
+  documents: Partial<
+    Record<DocumentKind, { absolutePath: string; filename: string; mimeType?: string }>
+  > = {},
 ): FillPlan {
   const planned: PlannedField[] = fields.map((field) => {
-    // Documents are Phase 4 and do not exist; a file input is always skipped.
+    // A file input gets whichever stored document its label names. When the
+    // label does not clearly name one — "Attach a file", or a label mentioning
+    // both a resume and a cover letter — nothing is attached, because the
+    // wrong file in an upload slot looks answered and reads wrong, and that is
+    // harder for a reviewing human to catch than an empty field.
     if (field.kind === "file" || field.inputType === "file") {
+      const wanted = documentKindForField(field.label);
+      const document = wanted ? documents[wanted] : undefined;
+
+      if (wanted === null) {
+        return {
+          field,
+          action: {
+            type: "skip",
+            reason: "Cannot tell which document this field wants — attach it yourself.",
+          },
+          source: "none",
+        };
+      }
+      if (!document) {
+        return {
+          field,
+          action: {
+            type: "skip",
+            reason: `No ${describeKind(wanted)} is saved. Upload one on the profile screen.`,
+          },
+          source: "none",
+        };
+      }
+
       return {
         field,
         action: {
-          type: "skip",
-          reason: "Document uploads are not built yet — attach this yourself.",
+          type: "attach",
+          path: document.absolutePath,
+          filename: document.filename,
+          mimeType: document.mimeType ?? "application/octet-stream",
+          kind: wanted,
         },
-        source: "none",
+        source: "document",
       };
     }
 

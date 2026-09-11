@@ -22,6 +22,9 @@ import { getProfile } from "../src/lib/candidate/store";
 import { applicationUrlFor } from "../src/lib/apply/application-url";
 import { runShadowApply } from "../src/lib/apply/shadow";
 import { worthStoring } from "../src/lib/apply/ask-plan";
+import { documentsForApply } from "../src/lib/documents/store";
+import { inboxConfig } from "../src/lib/email/inbox";
+import { senderDomainFor } from "../src/lib/email/detect-field";
 import { conceptOf } from "../src/lib/answers/concepts";
 import type { AnswerEntry } from "../src/lib/answers/match";
 
@@ -51,7 +54,9 @@ async function main(): Promise<void> {
   const handoff = process.argv.includes("--handoff");
 
   if (!jobId) {
-    console.error("Usage: npm run shadow -- <jobId> [--keep-open]");
+    console.error(
+      "Usage: npm run shadow -- <jobId> [--keep-open] [--handoff] [--ask] [--verify]",
+    );
     process.exitCode = 1;
     return;
   }
@@ -77,6 +82,25 @@ async function main(): Promise<void> {
     where: { candidateId: profile.id },
     select: { id: true, question: true, answer: true, isLegal: true },
   });
+
+  // What is on file to attach. A file input gets the document its label names;
+  // anything not saved is reported as a gap rather than silently skipped.
+  const documents = await documentsForApply(db, profile.id);
+
+  // A mailbox to read the verification code from, if one is configured and the
+  // run was asked for it. Opt-in twice on purpose: the variables have to be
+  // set AND --verify passed, because nothing should connect to a personal
+  // mailbox as a side effect of filling in a form.
+  const wantsVerification = process.argv.includes("--verify");
+  const mailbox = wantsVerification ? inboxConfig() : null;
+  if (wantsVerification && mailbox === null) {
+    console.log(
+      "--verify was passed but no mailbox is configured. " +
+        "Set IMAP_HOST, IMAP_USER and IMAP_PASSWORD in .env (see .env.example).",
+    );
+  }
+  // Only mail that arrives from here on is ever looked at.
+  const runStartedAt = new Date();
 
   const url = applicationUrlFor({
     atsType: job.atsType,
@@ -107,6 +131,7 @@ async function main(): Promise<void> {
       portfolioUrl: profile.portfolioUrl,
     },
     answers,
+    documents,
     screenshotPath,
     keepOpen,
     handoff,
@@ -114,6 +139,15 @@ async function main(): Promise<void> {
     // nobody is sitting in front of would stop at the first question and wait
     // forever.
     ask: handoff || keepOpen || process.argv.includes("--ask"),
+
+    verification: mailbox
+      ? {
+          config: mailbox,
+          since: runStartedAt,
+          fromDomain: senderDomainFor(url) ?? undefined,
+          timeoutMs: 120_000,
+        }
+      : undefined,
 
     async onAnswer(question, answer) {
       // Store it for next time — unless it is an answer about this employer or
@@ -139,7 +173,9 @@ async function main(): Promise<void> {
     },
   });
 
-  const filled = result.outcomes.filter((o) => o.status === "filled" || o.status === "chosen");
+  const filled = result.outcomes.filter(
+    (o) => o.status === "filled" || o.status === "chosen" || o.status === "attached",
+  );
   const skipped = result.outcomes.filter((o) => o.status === "skipped");
   const failed = result.outcomes.filter((o) => o.status === "failed");
 

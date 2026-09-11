@@ -243,6 +243,49 @@ model Candidate {
   preferences       CandidatePreferences?
   applications      Application[]
   shadowRuns        ShadowRun[]
+  documents         CandidateDocument[]
+}
+
+/// Which document this is, so the right file goes on the right upload button.
+/// A resume attached to the "Cover letter" field is worse than an empty field:
+/// it looks answered and reads wrong.
+enum DocumentKind {
+  RESUME
+  COVER_LETTER
+  TRANSCRIPT
+  OTHER
+}
+
+/// A file the candidate uploads once and every application attaches.
+///
+/// The bytes live on disk, not in this row. A file input on an employer's form
+/// needs a real path to point at, so storing the document as a blob would mean
+/// writing it back out to a temp file on every single run. `storagePath` is
+/// relative to the storage root (see src/lib/documents/store.ts) so the
+/// database stays portable across machines.
+model CandidateDocument {
+  id          String    @id @default(cuid())
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  kind     DocumentKind
+  filename String
+  mimeType String
+  /// Size as stored, used to show the person what is on file without opening it.
+  sizeBytes Int
+
+  /// Path relative to the storage root. Never absolute: this row is exported
+  /// in backups and an absolute path from one machine is a dead link on another.
+  storagePath String
+
+  /// The one to attach for this kind when a form asks. Exactly one document
+  /// per kind holds this; uploading a replacement moves the flag.
+  isDefault Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([candidateId, kind])
 }
 
 /// One job the candidate has held. This is candidate-provided description

@@ -18,6 +18,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getProfile } from "@/lib/candidate/store";
+import { DocumentError, saveDocument } from "@/lib/documents/store";
 import { getProvider } from "@/lib/ai";
 import { AiUnavailableError } from "@/lib/ai/types";
 import { mergeSuggestions, parseResumeWithAi } from "@/lib/resume/ai-parse";
@@ -87,12 +89,39 @@ export async function importResumeAction(form: FormData): Promise<void> {
       select: { id: true },
     });
 
+    // Keep the file itself, not just the words in it.
+    //
+    // Reading a resume for its text and then discarding the document is how
+    // this used to work, and it meant the one field every application form
+    // requires — the upload — could never be filled. The same upload now does
+    // both jobs, so there is no second step for the person to forget.
+    let documentNote = "";
+    const candidate = await getProfile(db);
+    if (candidate) {
+      try {
+        await saveDocument(db, {
+          candidateId: candidate.id,
+          kind: "RESUME",
+          filename: file.name,
+          mimeType: file.type,
+          bytes,
+        });
+        documentNote = " Saved as your resume — applications will attach it automatically.";
+      } catch (error) {
+        // A resume this app cannot store is still a resume it could read, and
+        // the parsed fields are the bigger half of this screen. Say so rather
+        // than failing the import.
+        const detail = error instanceof DocumentError ? error.message : "it could not be saved";
+        documentNote = ` The fields below were read, but the file was not kept for uploads: ${detail}`;
+      }
+    }
+
     const found = Object.keys(suggestions).length;
     revalidatePath("/profile");
     back({
       import: imported.id,
       saved: "imported",
-      note: `Read ${found} field${found === 1 ? "" : "s"} from ${file.name}.${aiNote}`,
+      note: `Read ${found} field${found === 1 ? "" : "s"} from ${file.name}.${documentNote}${aiNote}`,
     });
   } catch (error) {
     if (isRedirect(error)) throw error;

@@ -982,6 +982,15 @@ table.jobs td:first-child {
   color: var(--success-fg);
 }
 
+/* A warning: something is missing that will stop a run, but nothing is wrong
+   yet. Distinct from .notice-error, which reports a failure that happened. */
+.notice-warn {
+  border-color: color-mix(in srgb, var(--warning-fg) 30%, transparent);
+  border-left-color: var(--warning-fg);
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
 .notice-error {
   border-color: color-mix(in srgb, var(--danger-fg) 30%, transparent);
   border-left-color: var(--danger-fg);
