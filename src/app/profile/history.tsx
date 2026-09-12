@@ -35,9 +35,9 @@ export function WorkHistory({ work }: { work: WorkRow[] }) {
       </p>
 
       {work.length === 0 ? (
-        <p className="empty">No jobs on file.</p>
+        <p className="empty-compact">No jobs on file.</p>
       ) : (
-        <div className="table-wrap">
+        <div className="table-wrap entry-list">
           <table>
             <thead>
               <tr>
@@ -70,7 +70,7 @@ export function WorkHistory({ work }: { work: WorkRow[] }) {
         </div>
       )}
 
-      <form action={addWorkAction} className="import-form">
+      <form action={addWorkAction} className="entry-form">
         <label className="field">
           <span>Company</span>
           <input type="text" name="company" required />
@@ -115,9 +115,9 @@ export function EducationHistory({ education }: { education: EducationRow[] }) {
       </p>
 
       {education.length === 0 ? (
-        <p className="empty">No education on file.</p>
+        <p className="empty-compact">No education on file.</p>
       ) : (
-        <div className="table-wrap">
+        <div className="table-wrap entry-list">
           <table>
             <thead>
               <tr>
@@ -150,7 +150,7 @@ export function EducationHistory({ education }: { education: EducationRow[] }) {
         </div>
       )}
 
-      <form action={addEducationAction} className="import-form">
+      <form action={addEducationAction} className="entry-form">
         <label className="field">
           <span>School</span>
           <input type="text" name="school" required />

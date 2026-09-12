@@ -42,9 +42,9 @@ export function Documents({ documents }: { documents: StoredDocument[] }) {
       )}
 
       {documents.length === 0 ? (
-        <p className="empty">Nothing on file yet.</p>
+        <p className="empty-compact">Nothing on file yet.</p>
       ) : (
-        <div className="table-wrap">
+        <div className="table-wrap entry-list">
           <table>
             <thead>
               <tr>
@@ -82,7 +82,7 @@ export function Documents({ documents }: { documents: StoredDocument[] }) {
         </div>
       )}
 
-      <form action={uploadDocumentAction} className="import-form">
+      <form action={uploadDocumentAction} className="entry-form">
         <label className="field">
           <span>Kind</span>
           <select name="kind" defaultValue="RESUME">

@@ -102,7 +102,13 @@ export default async function CompaniesPage({ searchParams }: CompaniesPageProps
       </details>
 
       <div className="table-wrap">
-        <table className="jobs">
+        {/* Not table.jobs: that class is fixed-layout tuned for the jobs
+            table's own seven columns via .col-role etc. Reused here it left
+            eight columns — including the priority input+button and the two
+            action buttons — splitting one undifferentiated 66% evenly, which
+            overlapped text at anything under desktop width (spec: this table
+            instead gets its own auto layout below). */}
+        <table className="companies-table">
           <thead>
             <tr>
               <th scope="col">Company</th>
@@ -119,7 +125,7 @@ export default async function CompaniesPage({ searchParams }: CompaniesPageProps
           <tbody>
             {companies.map((company) => (
               <tr key={company.id}>
-                <td className="col-role">{company.name}</td>
+                <td>{company.name}</td>
                 <td>{company.atsType ? formatEnum(company.atsType) : "—"}</td>
                 <td>
                   <code>{company.atsIdentifier ?? "—"}</code>

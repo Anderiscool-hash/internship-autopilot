@@ -471,7 +471,12 @@ legend {
   width: 100%;
   height: var(--control-height);
   padding: 0 var(--space-2);
-  background: var(--bg);
+  /* background-color, not the `background` shorthand: the shorthand resets
+     background-image to none, which silently deleted the select chevron
+     drawn below (it lost the cascade to this rule's higher specificity even
+     though it comes later in the file — the Kind dropdown on the Documents
+     panel rendered with no arrow at all). */
+  background-color: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--text-primary);
@@ -496,8 +501,14 @@ legend {
 }
 
 /* Native selects look like a different application next to styled inputs, so
-   the OS chrome comes off and the chevron is drawn here. */
-select {
+   the OS chrome comes off and the chevron is drawn here. Targeted at
+   `.field select` / `.filter select` (every select in the app is one or the
+   other) rather than the bare element: a bare `select` selector has lower
+   specificity than `.field select`'s shared padding rule above, so its
+   padding-right lost the cascade and the chevron sat glued to the option
+   text with no room to breathe. */
+.field select,
+.filter select {
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2359636e'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -506,7 +517,8 @@ select {
 }
 
 @media (prefers-color-scheme: dark) {
-  select {
+  .field select,
+  .filter select {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239198a1'/%3E%3C/svg%3E");
   }
 }
@@ -781,6 +793,22 @@ table.jobs td:first-child {
   color: var(--text-primary);
 }
 
+/* The company registry table (spec §4): auto layout on purpose, the opposite
+   choice from table.jobs above. It has no long free-text column to protect
+   against, and forcing its nine columns — two of which hold an inline form —
+   into even fixed shares squeezed the priority input and the action buttons
+   until their labels overlapped. Auto layout sizes each column to its actual
+   content and lets .table-wrap's overflow-x carry the rest at narrow widths,
+   which is what that wrapper is for. */
+table.companies-table {
+  table-layout: auto;
+}
+
+table.companies-table td:first-child {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+
 .col-role {
   width: 34%;
 }
@@ -801,10 +829,17 @@ table.jobs td:first-child {
 }
 
 /* Long values in the narrow columns clip rather than wrap: a two-line pay
-   range in one row makes every row in view harder to scan. */
+   range in one row makes every row in view harder to scan. Remote/source/seen
+   look like short fixed vocabulary ("Remote", "Greenhouse", "10h ago") but
+   formatEnum() can also produce "Sap Successfactors", and at the 9%-width
+   tablet layout even "10h ago" was wrapping onto two lines and silently
+   doubling every row past --row-height. */
 .col-company,
 .col-location,
-.col-pay {
+.col-remote,
+.col-pay,
+.col-source,
+.col-seen {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -989,7 +1024,10 @@ table.jobs td:first-child {
 .field-check {
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  /* Token, not the literal 8px this used to read: --space-2 already equals
+     8px today, but a hardcoded value here would silently drift from the
+     scale the next time it's tuned. */
+  gap: var(--space-2);
 }
 
 .field-check input {
@@ -1226,6 +1264,17 @@ ul.ledger li:first-child {
   width: 100%;
 }
 
+/* .field-wide's grid-column span only does anything inside a .grid parent
+   (profile's forms). .answer-row is a flex column, not a grid, so the class
+   was a no-op here and the textarea fell back to its intrinsic ~20-column
+   width — a few hundred pixels of input with the rest of a widescreen row
+   sitting empty beside it. Stretched to the row and capped so a one-line
+   answer doesn't turn into an unreadably long line either. */
+.answer-row .field-wide {
+  align-self: stretch;
+  max-width: 40rem;
+}
+
 /* ============================================================================
    Application tracker board
    ============================================================================ */
@@ -1360,12 +1409,144 @@ ul.ledger li:first-child {
   flex: 0 1 32rem;
 }
 
-.import-form input[type="file"] {
+.import-form input[type="file"],
+.entry-form input[type="file"] {
   width: auto;
   height: auto;
   padding: var(--space-1) 0;
   border: none;
   font-size: var(--text-sm);
+}
+
+/* ----------------------------------------------------------------------------
+   .entry-form — a form that adds one row to a list (a job, a degree, a
+   document).
+
+   Not .import-form, which is one file field plus a button and is laid out as a
+   single flex row with `align-items: flex-end`. That works for one field and
+   falls apart at six: the row wraps into a ragged staircase, the submit button
+   lands in the middle of it, and a field carrying hint text pushes its
+   neighbours out of alignment and off the panel edge.
+
+   A grid instead, so every field occupies a cell of the same width whatever it
+   contains, and the button gets a row to itself.
+   -------------------------------------------------------------------------- */
+.entry-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space-3) var(--space-4);
+  align-items: start;
+}
+
+/* Without this a long placeholder sets the column width and the grid stops
+   being equal-width. */
+.entry-form .field {
+  min-width: 0;
+}
+
+/* Its own row, left-aligned — never a column pretending to be a field. */
+.entry-form > button {
+  grid-column: 1 / -1;
+  justify-self: start;
+  margin-top: var(--space-1);
+}
+
+/* A checkbox sits beside its label, and lines up with the INPUTS in the
+   neighbouring columns rather than with their labels. */
+.entry-form .field-check {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  align-self: end;
+  min-height: var(--control-height);
+}
+
+.entry-form .field-check input {
+  width: auto;
+  height: auto;
+  margin: 0;
+}
+
+/* Hint text wraps inside its own cell instead of spilling past the panel. */
+.entry-form small,
+.import-form small {
+  display: block;
+  font-size: var(--text-xs);
+  line-height: var(--lh-tight);
+  color: var(--text-tertiary);
+}
+
+/* ----------------------------------------------------------------------------
+   The questionnaire on /answers — one long fill-in-the-blank sheet.
+
+   Grouped in fieldsets because the groups mean different things: an
+   eligibility answer gates whether a job is worth applying to, while the
+   demographic block is voluntary and may be skipped wholesale. Reading them
+   as one undifferentiated list of twenty boxes hides that.
+   -------------------------------------------------------------------------- */
+.question-group {
+  margin: 0 0 var(--space-5);
+  padding: var(--space-4);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+
+.question-group legend {
+  padding: 0 var(--space-2);
+  font-size: var(--text-md);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+}
+
+.question-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+  gap: var(--space-4);
+}
+
+/* A question nobody has answered. Marked on the label rather than the control
+   so it reads as "you have not got to this yet" rather than as an error —
+   unanswered is a legitimate state here, not a validation failure. */
+.field-unanswered > span {
+  color: var(--text-tertiary);
+}
+
+.field-unanswered input,
+.field-unanswered select,
+.field-unanswered textarea {
+  border-style: dashed;
+}
+
+/* Marks an answer that is a legal claim, and so is never reworded downstream
+   (spec 16). Uses the warning token because it is a caution, not a judgement. */
+.badge-legal {
+  margin-left: var(--space-2);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* An empty state inside a panel, rather than standing in for a whole page.
+   The full .empty reserves 48px above and below its one line of text, which
+   inside a sub-panel reads as a rendering fault rather than as emptiness. */
+.empty-compact {
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  text-align: left;
+  color: var(--text-secondary);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+}
+
+/* The list a panel's form appends to. */
+.entry-list {
+  margin-bottom: var(--space-4);
 }
 
 /* A field holding a value read from a resume but not yet confirmed. The accent

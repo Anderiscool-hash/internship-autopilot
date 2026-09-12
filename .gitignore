@@ -46,3 +46,7 @@ backup*.json
 # Shadow-mode screenshots contain your filled-in personal details.
 shadow-runs/
 storage/
+
+# UI audit screenshots. The profile page shows your name, email, phone and
+# home address, so these are exactly as sensitive as the shadow-run shots.
+ui-audit/

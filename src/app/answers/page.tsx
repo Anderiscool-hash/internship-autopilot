@@ -8,8 +8,10 @@
  */
 
 import { db } from "@/lib/db";
+import { Questionnaire, type AnswerMap } from "./questionnaire";
 import { getProfile } from "@/lib/candidate/store";
-import { SUGGESTED_QUESTIONS } from "@/lib/answers/match";
+import { findAnswer, SUGGESTED_QUESTIONS } from "@/lib/answers/match";
+import { QUESTIONNAIRE } from "@/lib/answers/questionnaire";
 import { deleteAnswerAction, saveAnswerAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -30,12 +32,14 @@ function one(params: Record<string, string | string[] | undefined>, key: string)
 const SAVED_MESSAGES: Record<string, string> = {
   answer: "Answer saved.",
   deleted: "Answer removed.",
+  questionnaire: "Answers saved.",
 };
 
 export default async function AnswersPage({ searchParams }: AnswersPageProps) {
   const params = await searchParams;
   const saved = one(params, "saved");
   const error = one(params, "error");
+  const note = one(params, "note");
 
   const profile = await getProfile(db);
   if (!profile) {
@@ -54,6 +58,26 @@ export default async function AnswersPage({ searchParams }: AnswersPageProps) {
     orderBy: [{ isLegal: "desc" }, { question: "asc" }],
   });
 
+  // What the questionnaire already knows.
+  //
+  // Exact wording first, then the SAME matcher the autofill uses. Most of these
+  // answers were captured by the in-page ask panel, worded however that
+  // employer worded the question — so comparing on exact text alone would show
+  // an empty sheet to someone who has already answered half of it, and invite
+  // them to type it all again.
+  const answerMap: AnswerMap = new Map();
+  for (const item of QUESTIONNAIRE) {
+    const exact = entries.find((entry) => entry.question === item.question);
+    if (exact) {
+      answerMap.set(item.question, { value: exact.answer });
+      continue;
+    }
+    const match = findAnswer(item.question, entries);
+    if (match) {
+      answerMap.set(item.question, { value: match.entry.answer, from: match.entry.question });
+    }
+  }
+
   // The spec's standard questions that have no answer yet — the actual gap
   // between "this will run" and "this will stop and ask you".
   const answered = new Set(entries.map((entry) => entry.question.toLowerCase()));
@@ -70,13 +94,23 @@ export default async function AnswersPage({ searchParams }: AnswersPageProps) {
         invents one (spec §16).
       </p>
 
+      {note ? <div className="notice">{note}</div> : null}
+
       {saved && SAVED_MESSAGES[saved] ? (
         <div className="notice notice-ok">{SAVED_MESSAGES[saved]}</div>
       ) : null}
       {error ? <div className="notice notice-error">{error}</div> : null}
 
+      <Questionnaire answers={answerMap} />
+
+      <h2>Everything stored</h2>
+      <p className="note">
+        Including answers captured mid-application by the in-page panel, under whatever
+        wording that employer used.
+      </p>
+
       {entries.length === 0 ? (
-        <p className="empty">No answers yet. The suggestions below are a good start.</p>
+        <p className="empty">No answers yet. The sheet above is the quickest way to start.</p>
       ) : (
         <ul className="ledger">
           {entries.map((entry) => (

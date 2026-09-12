@@ -142,9 +142,40 @@ export async function runShadowApply(options: {
    * question for the person, which is what it was before.
    */
   verification?: VerificationOptions;
+  /**
+   * A browser to borrow instead of launching one.
+   *
+   * The daemon keeps one warm between applications. It is never closed here —
+   * only the run's own context is.
+   */
+  browser?: Browser;
+  /**
+   * Cookies from previous runs, as a Playwright storageState file path.
+   *
+   * Some portals — Workday especially — make you create an account before you
+   * can see the form at all. Without this, every run starts logged out and the
+   * form is a sign-in page.
+   */
+  storageState?: string;
+  /** Where to write the session back to when the run finishes. */
+  saveStateTo?: string;
 }): Promise<ShadowRunResult> {
-  const browser: Browser = await chromium.launch({ headless: false });
-  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  // A browser lent by the daemon, or one launched just for this run. Lending
+  // saves the ~400ms Chromium takes to start, and — more usefully — lets the
+  // caller keep one warm between applications.
+  const borrowed = options.browser ?? null;
+  const browser: Browser = borrowed ?? (await chromium.launch({ headless: false }));
+
+  // A fresh context per run either way, even when the browser is shared. The
+  // submit guard is a context-level route handler, so a shared context would
+  // mean one run's handoff lifting the guard out from under another's. Logins
+  // survive through storageState below rather than through a shared context.
+  const context = await browser.newContext({
+    viewport: { width: 1280, height: 900 },
+    // Cookies from previous runs, when the caller keeps them. This is what
+    // lets a portal that made you sign in once stay signed in.
+    storageState: options.storageState,
+  });
   const blockedSubmissions: string[] = [];
   let blockedTrackers = 0;
   const formHost = new URL(options.url).host;
@@ -318,9 +349,24 @@ export async function runShadowApply(options: {
 
     return result;
   } finally {
-    const stayOpen = options.keepOpen || options.handoff;
-    if (!stayOpen) await browser.close();
-    else await browser.close().catch(() => undefined);
+    // Save the session before tearing anything down, so a portal that made the
+    // person sign in does not make them do it again next time.
+    if (options.saveStateTo) {
+      await context
+        .storageState({ path: options.saveStateTo })
+        .catch(() => undefined);
+    }
+
+    if (borrowed) {
+      // Not ours to close. Close the context so the window goes away and the
+      // run's cookies do not leak into the next one, and leave the browser
+      // warm for whoever lent it.
+      await context.close().catch(() => undefined);
+    } else {
+      const stayOpen = options.keepOpen || options.handoff;
+      if (!stayOpen) await browser.close();
+      else await browser.close().catch(() => undefined);
+    }
   }
 }
 

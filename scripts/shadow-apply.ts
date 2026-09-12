@@ -8,254 +8,81 @@
  * Run it with:  npm run shadow -- <jobId>
  *               npm run shadow -- <jobId> --keep-open  (inspect, still locked)
  *               npm run shadow -- <jobId> --handoff    (fill, then it is yours)
+ *               npm run shadow -- <jobId> --verify     (read the emailed code)
+ *
+ * Add --no-daemon to launch a browser for this run instead of borrowing the
+ * warm one from `npm run daemon`.
  *
  * Afterwards it prints what it filled, what it could not, and where the
  * screenshot is. Record whether the fields were right with:
  *   npm run shadow:verdict -- <runId> correct
  *   npm run shadow:verdict -- <runId> wrong "what was wrong"
- */
-
-import { mkdirSync } from "node:fs";
-import { resolve } from "node:path";
-import { db } from "../src/lib/db";
-import { getProfile } from "../src/lib/candidate/store";
-import { applicationUrlFor } from "../src/lib/apply/application-url";
-import { runShadowApply } from "../src/lib/apply/shadow";
-import { worthStoring } from "../src/lib/apply/ask-plan";
-import { documentsForApply } from "../src/lib/documents/store";
-import { historyForApply } from "../src/lib/candidate/history";
-import { inboxConfig } from "../src/lib/email/inbox";
-import { senderDomainFor } from "../src/lib/email/detect-field";
-import { conceptOf } from "../src/lib/answers/concepts";
-import type { AnswerEntry } from "../src/lib/answers/match";
-
-/**
- * Mark work-authorization, sponsorship, age and the like as legal answers.
  *
- * The flag matters downstream: a legal answer is never reworded (spec §16),
- * because a paraphrase of "yes, I am authorized" is a different legal claim.
+ * The sequence itself lives in src/lib/apply/run-application.ts, because the
+ * daemon runs exactly the same one.
  */
-function isLegalQuestion(question: string): boolean {
-  const concept = conceptOf(question);
-  return (
-    concept === "work-authorization" ||
-    concept === "sponsorship" ||
-    concept === "age-18" ||
-    concept === "security-clearance" ||
-    concept === "criminal-record"
-  );
-}
 
-const SHOT_DIR = resolve("./shadow-runs");
+import { db } from "../src/lib/db";
+import {
+  ApplicationRunError,
+  reportRun,
+  runApplication,
+} from "../src/lib/apply/run-application";
+import { daemonStatus, submitToDaemon } from "../src/lib/apply/daemon-client";
 
 async function main(): Promise<void> {
   const jobId = process.argv[2];
   const keepOpen = process.argv.includes("--keep-open");
-  // Handoff: fill it, then give the window to the person so they can submit.
   const handoff = process.argv.includes("--handoff");
+  const verify = process.argv.includes("--verify");
+  const noDaemon = process.argv.includes("--no-daemon");
+  const ask = handoff || keepOpen || process.argv.includes("--ask");
 
   if (!jobId) {
     console.error(
-      "Usage: npm run shadow -- <jobId> [--keep-open] [--handoff] [--ask] [--verify]",
+      "Usage: npm run shadow -- <jobId> [--keep-open] [--handoff] [--ask] [--verify] [--no-daemon]",
     );
     process.exitCode = 1;
     return;
   }
 
-  const job = await db.job.findUnique({
-    where: { id: jobId },
-    include: { company: { select: { name: true, atsIdentifier: true } } },
-  });
-  if (!job) {
-    console.error(`No job with id ${jobId}.`);
-    process.exitCode = 1;
-    return;
-  }
-
-  const profile = await getProfile(db);
-  if (!profile) {
-    console.error("No profile saved. Fill in /profile first — there is nothing to fill the form with.");
-    process.exitCode = 1;
-    return;
-  }
-
-  const answers: AnswerEntry[] = await db.answerBankEntry.findMany({
-    where: { candidateId: profile.id },
-    select: { id: true, question: true, answer: true, isLegal: true },
-  });
-
-  // What is on file to attach. A file input gets the document its label names;
-  // anything not saved is reported as a gap rather than silently skipped.
-  const documents = await documentsForApply(db, profile.id);
-
-  // Work history and education: the employment and education blocks most
-  // forms require. Empty lists simply mean those fields are left for the
-  // person, exactly as before.
-  const history = await historyForApply(db, profile.id);
-
-  // A mailbox to read the verification code from, if one is configured and the
-  // run was asked for it. Opt-in twice on purpose: the variables have to be
-  // set AND --verify passed, because nothing should connect to a personal
-  // mailbox as a side effect of filling in a form.
-  const wantsVerification = process.argv.includes("--verify");
-  const mailbox = wantsVerification ? inboxConfig() : null;
-  if (wantsVerification && mailbox === null) {
-    console.log(
-      "--verify was passed but no mailbox is configured. " +
-        "Set IMAP_HOST, IMAP_USER and IMAP_PASSWORD in .env (see .env.example).",
-    );
-  }
-  // Only mail that arrives from here on is ever looked at.
-  const runStartedAt = new Date();
-
-  const url = applicationUrlFor({
-    atsType: job.atsType,
-    atsIdentifier: job.company.atsIdentifier,
-    sourceJobId: job.sourceJobId,
-    canonicalUrl: job.canonicalUrl,
-  });
-
-  mkdirSync(SHOT_DIR, { recursive: true });
-  const screenshotPath = resolve(SHOT_DIR, `${job.id}-${Date.now()}.png`);
-
-  console.log(`\nShadow run — ${job.title} at ${job.company.name}`);
-  console.log(url);
-  console.log("Nothing will be submitted: every non-GET request is blocked while this runs.\n");
-
-  const result = await runShadowApply({
-    url,
-    profile: {
-      name: profile.name,
-      email: profile.email,
-      phone: profile.phone,
-      address: profile.address,
-      school: profile.school,
-      degree: profile.degree,
-      graduationDate: profile.graduationDate,
-      linkedinUrl: profile.linkedinUrl,
-      githubUrl: profile.githubUrl,
-      portfolioUrl: profile.portfolioUrl,
-      work: history.work,
-      education: history.education,
-    },
-    answers,
-    documents,
-    screenshotPath,
-    keepOpen,
-    handoff,
-    // Asking only makes sense when someone is watching the window. A run that
-    // nobody is sitting in front of would stop at the first question and wait
-    // forever.
-    ask: handoff || keepOpen || process.argv.includes("--ask"),
-
-    verification: mailbox
-      ? {
-          config: mailbox,
-          since: runStartedAt,
-          fromDomain: senderDomainFor(url) ?? undefined,
-          timeoutMs: 120_000,
-        }
-      : undefined,
-
-    async onAnswer(question, answer) {
-      // Store it for next time — unless it is an answer about this employer or
-      // this particular posting, which would be wrong on the next form rather
-      // than merely unhelpful.
-      if (!worthStoring(question, job.company.name)) {
-        console.log(`  (not saved: "${question.slice(0, 50)}" is specific to this application)`);
+  // Hand it to the daemon when one is up: it already has a browser warm and a
+  // database connection open, which is most of this process's startup cost.
+  // The run happens in a visible window either way.
+  if (!noDaemon) {
+    const status = await daemonStatus();
+    if (status) {
+      console.log(`Handing this to the running daemon (pid ${status.pid}).`);
+      const accepted = await submitToDaemon({ jobId, keepOpen, handoff, verify, ask });
+      if (accepted) {
+        console.log(
+          "Accepted. The window opens shortly; the daemon's terminal carries the report.",
+        );
         return;
       }
+      console.log("The daemon refused it — running here instead.");
+    }
+  }
 
-      const existing = await db.answerBankEntry.findFirst({
-        where: { candidateId: profile.id, question },
-      });
-
-      if (existing) {
-        await db.answerBankEntry.update({ where: { id: existing.id }, data: { answer } });
-      } else {
-        await db.answerBankEntry.create({
-          data: { candidateId: profile.id, question, answer, isLegal: isLegalQuestion(question) },
-        });
-      }
-      console.log(`  saved for next time: "${question.slice(0, 50)}" -> "${answer.slice(0, 40)}"`);
-    },
+  const outcome = await runApplication(db, {
+    jobId,
+    keepOpen,
+    handoff,
+    verify,
+    ask,
+    persistSession: true,
   });
 
-  const filled = result.outcomes.filter(
-    (o) => o.status === "filled" || o.status === "chosen" || o.status === "attached",
-  );
-  const skipped = result.outcomes.filter((o) => o.status === "skipped");
-  const failed = result.outcomes.filter((o) => o.status === "failed");
-
-  console.log("\nFilled:");
-  for (const outcome of filled) {
-    console.log(`  ${outcome.label}: ${outcome.detail}  [${outcome.source}]`);
-  }
-
-  if (failed.length > 0) {
-    console.log("\nCould not fill:");
-    for (const outcome of failed) console.log(`  ${outcome.label}: ${outcome.detail}`);
-  }
-
-  console.log(`\nLeft for you (${skipped.length}):`);
-  for (const outcome of skipped.slice(0, 12)) {
-    console.log(`  ${outcome.label}: ${outcome.detail}`);
-  }
-  if (skipped.length > 12) console.log(`  ...and ${skipped.length - 12} more`);
-
-  if (result.captcha) console.log("\nCAPTCHA present — this form cannot be automated past this point.");
-  if (result.loginRequired) console.log("\nThis form is behind a login.");
-
-  console.log(
-    `\nGuard: ${result.blockedTrackers} third-party beacons blocked (normal — ATS pages are full of them).`,
-  );
-  if (result.blockedSubmissions.length > 0) {
-    console.log("!! Blocked a request to the form's own host — something tried to submit:");
-    for (const request of result.blockedSubmissions) console.log(`  ${request}`);
-  } else {
-    console.log("Guard: no submission attempt was made.");
-  }
-  if (result.allowedUploads.length > 0) {
-    console.log(
-      `Guard: ${result.allowedUploads.length} upload request(s) allowed while attaching a ` +
-        "document (never to the form's own host, so none could be a submission):",
-    );
-    for (const request of result.allowedUploads) console.log(`  ${request}`);
-  }
-
-  const run = await db.shadowRun.create({
-    data: {
-      jobId: job.id,
-      candidateId: profile.id,
-      url,
-      atsType: job.atsType,
-      fieldsTotal: result.outcomes.length,
-      fieldsFilled: filled.length,
-      fieldsSkipped: skipped.length,
-      fieldsFailed: failed.length,
-      blockingGaps: result.blockingGaps,
-      captcha: result.captcha,
-      loginRequired: result.loginRequired,
-      screenshotPath,
-      outcomes: result.outcomes as never,
-    },
-    select: { id: true },
-  });
-
-  console.log(`\nWould have applied: ${result.blockingGaps.length === 0 ? "YES" : "NO"}`);
-  if (result.blockingGaps.length > 0) {
-    console.log(`Required fields still empty: ${result.blockingGaps.join(", ")}`);
-  }
-  console.log(`\nScreenshot: ${screenshotPath}`);
-  console.log("\nAll fields correct? Record it so adapter reliability can be measured:");
-  console.log(`  npm run shadow:verdict -- ${run.id} correct`);
-  console.log(`  npm run shadow:verdict -- ${run.id} wrong "what was wrong"`);
-  console.log("\nNothing was submitted.");
+  reportRun(outcome, (line) => console.log(line));
 }
 
 main()
   .catch((error) => {
-    console.error("Shadow run failed:", error);
+    if (error instanceof ApplicationRunError) {
+      console.error(error.message);
+    } else {
+      console.error("Shadow run failed:", error);
+    }
     process.exitCode = 1;
   })
   .finally(() => db.$disconnect());
