@@ -11,6 +11,7 @@
  * here and tested without a browser.
  */
 
+import { ambiguousLabelReason } from "../answers/ambiguous-labels";
 import { conceptOf } from "../answers/concepts";
 import type { FieldOutcome } from "./shadow-types";
 import type { FillableField } from "./fill-plan";
@@ -75,13 +76,15 @@ export function questionsToAsk(
  * Most should: "are you at least 18", "how did you hear about us" and the rest
  * are asked by everyone, and answering them once is the point of the exercise.
  *
- * Two kinds are not worth storing, because reusing them would be wrong rather
- * than merely useless:
+ * Three kinds are not worth storing, because reusing them would be wrong
+ * rather than merely useless:
  *
  *   - anything naming this employer ("Have you worked at Coinbase before?"),
  *     which has a different answer at the next company
  *   - one-off details of this specific application ("Which team?", "Start date
  *     for this role")
+ *   - a label proven to be reused with a different meaning in different
+ *     sections of a form (see ../answers/ambiguous-labels.ts)
  *
  * Storing those would quietly put last week's answer on this week's form,
  * which is the failure this whole codebase is built to avoid.
@@ -89,6 +92,26 @@ export function questionsToAsk(
 export function worthStoring(question: string, companyName: string): boolean {
   const text = question.toLowerCase();
   const company = companyName.toLowerCase().trim();
+
+  // A label already proven to collide across sections ("Start date month"
+  // meaning an employment date on one employer's form and an education date
+  // on another's — see ambiguousLabelReason's own evidence). buildFillPlan
+  // refuses to ever reuse an answer-bank entry under one of these labels, so
+  // storing it here cannot recreate the original corruption at the point
+  // where a value gets typed onto a form — that path is already closed.
+  // But it is refused anyway, on purpose: this app has exactly one place to
+  // put an answer, `AnswerBankEntry.question`, with no column for which
+  // section it came from. A row saved here would silently mix an employment
+  // date and an education date under one flat key — the exact shape of the
+  // stored data that caused the real corruption this file's whole design is
+  // reacting to (see the findings doc's "concrete failure": a person read
+  // that flat row and reasonably assumed it meant one specific thing, and
+  // was wrong). Leaving the row unwritten means the person retypes this
+  // question on every application until section-scoped storage exists (the
+  // findings doc's proposed next step) — a real, ongoing annoyance, but a
+  // misleading row in a system nothing can safely interpret is worse than an
+  // honest gap.
+  if (ambiguousLabelReason(question) !== null) return false;
 
   // Names this employer: the answer is about them, not about the candidate.
   // "No" to "have you worked at Coinbase before" says nothing about Stripe.

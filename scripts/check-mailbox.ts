@@ -9,8 +9,24 @@
  *   npm run mailbox:check
  */
 
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { ImapFlow } from "imapflow";
 import { inboxConfig } from "../src/lib/email/inbox";
+
+// Every other entry point loads .env as a side effect of importing `db` —
+// instantiating PrismaClient reads it internally. This script imports
+// neither `db` nor anything that does, so without this it always saw an
+// empty process.env and printed "No mailbox configured" even when IMAP_* was
+// set and working. Load it explicitly and honestly instead of depending on
+// an accident of what some other module happens to import.
+//
+// Node's own `process.loadEnvFile` (no extra dependency) rather than relying
+// on Prisma to have done it first. Guarded with existsSync because it throws
+// on a missing file, and a missing .env should fall through to inboxConfig's
+// own "not configured" message rather than crash here.
+const ENV_PATH = resolve(".env");
+if (existsSync(ENV_PATH)) process.loadEnvFile(ENV_PATH);
 
 async function main(): Promise<void> {
   const config = inboxConfig();

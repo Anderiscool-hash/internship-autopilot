@@ -60,13 +60,37 @@ describe("profileValueFor — employment", () => {
   it("fills company and title from the current job", () => {
     expect(profileValueFor("Company name", WITH_HISTORY)).toBe("Acme Labs");
     expect(profileValueFor("Title", WITH_HISTORY)).toBe("Software Intern");
-    expect(profileValueFor("Current role", WITH_HISTORY)).toBe("Software Intern");
   });
 
   it("leaves them empty when there is no work history", () => {
     // The point of the whole exercise: no invented employer.
     expect(profileValueFor("Company name", BASE)).toBeNull();
     expect(profileValueFor("Title", BASE)).toBeNull();
+  });
+
+  // A live measurement run against the real Coinbase form handed this
+  // checkbox the job-TITLE string ("Software Intern" / "Security Manager" in
+  // different runs) because it used to share a regex with the title rule
+  // above. "Current role" is a boolean — "I still work here" — never a job
+  // title, and the box's own options never contain one, so that string could
+  // only ever fail to match. Answered from isCurrent instead.
+  it("answers 'Current role' from isCurrent, never with the job title", () => {
+    expect(profileValueFor("Current role", WITH_HISTORY)).toBe("Yes");
+    expect(profileValueFor("Current position", WITH_HISTORY)).toBe("Yes");
+    expect(profileValueFor("I currently work here", WITH_HISTORY)).toBe("Yes");
+  });
+
+  it("leaves 'Current role' unticked when the most recent job has already ended", () => {
+    const pastJobOnly: FillProfile = {
+      ...BASE,
+      work: [{ company: "Older Co", title: "Helpdesk", location: null, isCurrent: false }],
+    };
+    // Not a gap to report — an unticked box IS the correct answer here.
+    expect(profileValueFor("Current role", pastJobOnly)).toBeNull();
+  });
+
+  it("leaves 'Current role' empty when there is no work history at all", () => {
+    expect(profileValueFor("Current role", BASE)).toBeNull();
   });
 
   // Answering these with the candidate's own employer would be actively wrong.

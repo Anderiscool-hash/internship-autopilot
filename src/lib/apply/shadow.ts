@@ -50,6 +50,7 @@ import {
 } from "./fill-plan";
 import { askInPage, classifyMailCheck, showStatus, type MailboxCheck } from "./ask-overlay";
 import { questionsToAsk } from "./ask-plan";
+import { computeBlockingGaps } from "./blocking-gaps";
 import { readOpenForm } from "./read-form";
 import type { FieldOutcome } from "./shadow-types";
 
@@ -58,7 +59,18 @@ export type { FieldOutcome } from "./shadow-types";
 export interface ShadowRunResult {
   url: string;
   outcomes: FieldOutcome[];
-  /** Required fields still empty when the run finished. */
+  /**
+   * Required fields still without a usable value when the run finished.
+   *
+   * This is NOT `buildFillPlan`'s own `blockingGaps` — that counts only
+   * fields the planner chose to skip, which undercounts: a field planned to
+   * fill can still fail once it meets the real page (a combobox option that
+   * never matched, a control Playwright couldn't find), and that blocks
+   * submission exactly like a planned skip does. This list is rebuilt from
+   * every planned field's actual final outcome — see computeBlockingGaps in
+   * blocking-gaps.ts — so a runtime failure on a required field is never
+   * missing from what gets reported and persisted.
+   */
   blockingGaps: string[];
   /** Absolute path to the screenshot of the filled form. */
   screenshotPath: string;
@@ -345,7 +357,12 @@ export async function runShadowApply(options: {
     const result: ShadowRunResult = {
       url: options.url,
       outcomes,
-      blockingGaps: plan.blockingGaps,
+      // Rebuilt from the final outcomes rather than taken from the pure
+      // plan directly — see the field's own doc comment above and
+      // blocking-gaps.ts for why: a required field the plan expected to
+      // fill can still fail once it meets the real page, and that has to
+      // show up here too.
+      blockingGaps: computeBlockingGaps(plan.planned, outcomes),
       screenshotPath: options.screenshotPath,
       captcha: form.captcha,
       loginRequired: form.loginRequired,
@@ -511,8 +528,22 @@ async function chooseFromCombobox(
 
   if (chosen === null) {
     await locator.fill(searchTerm.slice(0, 60), { timeout: 5_000 }).catch(() => undefined);
-    await page.waitForTimeout(500);
-    filtered = await readOptions();
+
+    // The menu re-renders in response to what was just typed, on its own
+    // clock — a debounce, or for a long list a genuine server round-trip.
+    // A single read after one fixed pause raced that: a live run against a
+    // real ~100-option School dropdown typed "John Jay College of Criminal
+    // Justice", read the menu 500ms later, and got zero options back for a
+    // school the list plainly had once it finished re-rendering. So this
+    // polls instead of reading once — the same fix, for the same reason,
+    // that waitForText below uses to read back an upload's filename rather
+    // than trusting the first read.
+    const filterDeadline = Date.now() + 3_000;
+    do {
+      filtered = await readOptions();
+      if (filtered.length > 0) break;
+      await page.waitForTimeout(100);
+    } while (Date.now() < filterDeadline);
 
     chosen = matchOptionForLabel(value, filtered, label);
 

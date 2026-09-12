@@ -287,3 +287,69 @@ this system, but it's a bigger change with a real gap (unreliable section
 headings on some ATS platforms) that doesn't fully close the risk anyway —
 so it shouldn't gate shipping the narrow, provably-correct fix first. This
 is a call for the user to make, not something to implement here.
+
+## Status: option 2 shipped (2026-09-12)
+
+The denylist-refusal described above is implemented:
+
+- `src/lib/answers/ambiguous-labels.ts` — the denylist itself, with each
+  entry's evidence cited in the module comment (the same Coinbase/Datadog/
+  Stripe field orders quoted above, plus a live measurement run against the
+  real Coinbase form on 2026-09-12 that confirmed the failure directly: a
+  stored degree date — August 2027 to September 2029 — was pulled onto
+  Coinbase's employment date fields for a job that actually started July
+  2025 and is still ongoing). Scope matches the recommendation exactly:
+  `Start date month`, `Start date year`, `End date month`, `End date year`
+  only. `Company name`, `Title`, `School`, `Degree`, `Discipline` are NOT on
+  the list — the evidence available still does not show them colliding, per
+  this doc's own "Labels at risk" section, so adding them would have been
+  guessing rather than shipping the "evidence, not imagination" list this
+  task asked for.
+- Wired into `buildFillPlan` in `src/lib/apply/fill-plan.ts`: the denylist is
+  checked only when `profileValueFor` (the profile path) returned null, so it
+  can only ever refuse an answer-bank reuse, never a profile-sourced value.
+  When it fires, the field's `skip` action carries the denylist's own reason
+  string instead of the generic "no stored answer" message, so the person
+  sees why, not just that.
+- `worthStoring` in `src/lib/apply/ask-plan.ts` now also refuses to store an
+  answer under one of these labels at all. Decision and reasoning: storing it
+  cannot recreate the original wrong-value-on-a-form failure, because
+  `buildFillPlan` refuses to reuse anything under these labels regardless of
+  what is stored — but a stored row would still be one flat
+  `AnswerBankEntry.question` key silently mixing an employment date and an
+  education date, which is exactly the shape of data that caused the real
+  corruption described at the top of this document. The cost is real: the
+  person retypes these four fields on every application until per-section
+  memory (option 3, below) exists. That was judged the smaller harm.
+
+### A second, related bug fixed alongside this
+
+A live measurement run against the real Coinbase form also showed
+`profileValueFor` in `fill-plan.ts` handing the "Current role" checkbox
+(meaning "I still work here") the candidate's job-TITLE string, because it
+shared a regex with the job-title rule. The checkbox's own options never
+contain a job title, so this always failed to match and the box was reported
+"left for you" on every run, even when the profile plainly knows the
+candidate's current job is current. Fixed by answering it from the
+`isCurrent` boolean instead ("Yes" when true, nothing when false or absent),
+separated out from the title regex. See `work-education.test.ts` for the
+regression tests.
+
+### What did NOT ship
+
+Per the recommendation above, option 3 (per-section memory: keep the
+denylist, but store the answer keyed by `(question, nearest section
+heading)` instead of refusing to store it at all) and option 1 (the general
+`AnswerBankEntry.context`/section-key schema change) remain future work, not
+built here. Both still require `read-form.ts` to capture a section signal it
+currently discards — see "What the DOM actually offers, and what gets thrown
+away," above — which this change deliberately did not touch.
+
+### The real cost, plainly
+
+Four fields — `Start date month`, `Start date year`, `End date month`,
+`End date year` — that were previously silently filled (sometimes correctly,
+sometimes not, per the evidence above) are now always left for the person to
+answer, on every single application, until option 3 ships. This is a
+deliberate trade: a field the person has to type is noticed and fixed: a
+wrong value silently submitted under their name to a real employer is not.

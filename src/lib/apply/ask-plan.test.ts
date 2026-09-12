@@ -97,4 +97,22 @@ describe("worthStoring", () => {
     // Everyone asks this and the answer is usually reusable.
     expect(worthStoring("Why are you interested in this role?", "Coinbase")).toBe(true);
   });
+
+  // A label proven to be reused with a different meaning in different
+  // sections of a form (src/lib/answers/ambiguous-labels.ts) is refused here
+  // too, not just at fill time. buildFillPlan already refuses to reuse any
+  // answer-bank entry under one of these labels regardless of what is
+  // stored, so storing it cannot recreate the original wrong-value-on-a-form
+  // failure — but it would still sit in the answer bank as one flat row
+  // silently mixing an employment date with an education date, which is
+  // exactly the shape of data that caused the real corruption this file's
+  // design otherwise avoids. Decision: don't store it. The person retypes it
+  // on every form until section-scoped storage exists — a real cost, but a
+  // misleading stored row nothing can safely interpret is worse.
+  it("refuses to store an answer under a label proven to collide across sections", () => {
+    expect(worthStoring("Start date month", "Coinbase")).toBe(false);
+    expect(worthStoring("Start date year", "Coinbase")).toBe(false);
+    expect(worthStoring("End date month", "Coinbase")).toBe(false);
+    expect(worthStoring("End date year", "Datadog")).toBe(false);
+  });
 });

@@ -13,6 +13,7 @@
  * an invented answer on a real application is not a bug you can retract.
  */
 
+import { ambiguousLabelReason } from "../answers/ambiguous-labels";
 import { findAnswer, type AnswerEntry } from "../answers/match";
 import { describeKind, documentKindForField, type DocumentKind } from "../documents/kind-for-field";
 import { inferEducationLevel } from "../eligibility/engine";
@@ -150,7 +151,30 @@ export function profileValueFor(label: string, profile: FillProfile): string | n
     return currentWork(profile)?.company ?? null;
   }
 
-  if (/current role|job title|position title|\btitle\b/.test(text)) {
+  // "Current role" (and its common phrasings — "current position," "I
+  // currently work here") is a checkbox meaning "I still work at this job,"
+  // not a job title. It used to share a regex with the title rule below,
+  // which meant a job-title STRING ("Security Manager", "Software Intern")
+  // was handed to a boolean checkbox — a live measurement run against the
+  // real Coinbase form confirmed this: the checkbox's own options never
+  // contain a job title, so the match always failed and the box was reported
+  // "left for you" on every run, even when the profile plainly knows the
+  // candidate's current job is in fact current. Answered from the isCurrent
+  // flag instead, as "Yes" — the same plain affirmative this codebase already
+  // uses for other boolean answers (see the legal Yes/No entries in the
+  // answer bank) — which `matchOption` in buildFillPlan then has to actually
+  // find among the field's real options, the same as any other answer; if
+  // the employer's checkbox does not offer anything "Yes" can match, this
+  // still reports honestly as unmatched rather than guessing further.
+  //
+  // No current job on file (or the most recent one has already ended): the
+  // box should stay unticked, so null — "nothing to check" is the correct
+  // answer here, not a gap to report.
+  if (/\bcurrent role\b|\bcurrent position\b|\bcurrently work(ing)?\s*here\b|^present$/.test(text)) {
+    return currentWork(profile)?.isCurrent ? "Yes" : null;
+  }
+
+  if (/job title|position title|\btitle\b/.test(text)) {
     // Mr/Mrs/Dr, not a job. Matched on the honorifics themselves as well as
     // the word "salutation", because the commonest spelling of this field is
     // "Title (Mr/Ms/Dr)" — which says "title" and never says "salutation".
@@ -424,7 +448,22 @@ export function buildFillPlan(
     // wording this particular employer used.
     const fromProfile =
       field.kind === "standard" ? profileValueFor(field.label, profile) : null;
-    const match = fromProfile === null ? findAnswer(field.label, answers) : null;
+
+    // A label proven to be reused with a different meaning in different
+    // sections of a form (see ../answers/ambiguous-labels.ts — "Start date
+    // month" meaning an employment date on one employer's form and an
+    // education date on another's, confirmed by a live run that pulled a
+    // stored degree date onto a real employer's employment fields) must never
+    // have an answer-bank entry attached to it, however well the text
+    // matches. This is deliberately scoped to the answer-bank path only:
+    // `fromProfile` above is computed first and is never touched by this
+    // check, so a label the profile CAN answer unambiguously — "Company
+    // name" and "Title" from stored work history — still fills normally.
+    const denylistReason = fromProfile === null ? ambiguousLabelReason(field.label) : null;
+    const match =
+      fromProfile === null && denylistReason === null
+        ? findAnswer(field.label, answers)
+        : null;
     const value = fromProfile ?? match?.entry.answer ?? null;
     const source: PlannedField["source"] =
       fromProfile !== null ? "profile" : match ? "answer-bank" : "none";
@@ -435,9 +474,10 @@ export function buildFillPlan(
         action: {
           type: "skip",
           reason:
-            field.kind === "standard"
+            denylistReason ??
+            (field.kind === "standard"
               ? "Your profile has no value for this."
-              : "No stored answer matches this question closely enough.",
+              : "No stored answer matches this question closely enough."),
         },
         source: "none",
       };

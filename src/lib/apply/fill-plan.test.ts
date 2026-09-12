@@ -216,6 +216,83 @@ describe("buildFillPlan", () => {
     expect(plan.planned[0]?.action.type).toBe("skip");
   });
 
+  // See src/lib/answers/ambiguous-labels.ts and
+  // docs/findings/answer-bank-label-collisions.md for the evidence: real
+  // Greenhouse forms reuse "Start date month" for an EMPLOYMENT date
+  // (Coinbase) and for an EDUCATION date (Datadog, Stripe). A live
+  // measurement run against the real Coinbase form confirmed this pulls a
+  // stored degree date onto an employer's employment fields, so the stored
+  // answer must never be reused here, however well the text matches.
+  describe("the ambiguous-label denylist", () => {
+    const DATE_ANSWERS: AnswerEntry[] = [
+      { id: "sdm", question: "Start date month", answer: "08", isLegal: false },
+    ];
+
+    it("does not reuse a stored 'Start date month' answer", () => {
+      const plan = buildFillPlan(
+        [field({ label: "Start date month", kind: "standard", inputType: "select", options: ["January", "August"] })],
+        PROFILE,
+        DATE_ANSWERS,
+      );
+      expect(plan.planned[0]?.action.type).toBe("skip");
+      expect(plan.planned[0]?.source).toBe("none");
+    });
+
+    it("explains why in the skip reason, not just that it skipped", () => {
+      const plan = buildFillPlan(
+        [field({ label: "Start date month", kind: "standard", inputType: "text" })],
+        PROFILE,
+        DATE_ANSWERS,
+      );
+      const action = plan.planned[0]?.action;
+      expect(action?.type).toBe("skip");
+      if (action?.type === "skip") {
+        // A human reading this should understand WHY, not just "no value" —
+        // the whole point of a denylist reason over the generic one.
+        expect(action.reason).toMatch(/different/i);
+        expect(action.reason.length).toBeGreaterThan(40);
+      }
+    });
+
+    // The regression this could easily cause: PROFILE-sourced values must
+    // stay untouched. "Company name" and "Title" fill correctly from stored
+    // work history — unambiguous structured data — and the denylist must
+    // never intercept that path.
+    it("still fills 'Company name' and 'Title' from the profile", () => {
+      const profileWithWork: FillProfile = {
+        ...PROFILE,
+        work: [{ company: "Acme Labs", title: "Software Intern", location: null, isCurrent: true }],
+      };
+      const plan = buildFillPlan(
+        [
+          field({ label: "Company name", kind: "standard" }),
+          field({ label: "Title", kind: "standard" }),
+        ],
+        profileWithWork,
+        DATE_ANSWERS,
+      );
+      expect(plan.planned[0]?.action).toEqual({ type: "fill", value: "Acme Labs" });
+      expect(plan.planned[0]?.source).toBe("profile");
+      expect(plan.planned[1]?.action).toEqual({ type: "fill", value: "Software Intern" });
+      expect(plan.planned[1]?.source).toBe("profile");
+    });
+
+    // The denylist must not quietly disable the answer bank in general — an
+    // unambiguous custom label with a stored answer still fills normally.
+    it("still fills an unambiguous custom label from the answer bank", () => {
+      const plan = buildFillPlan(
+        [field({ label: "Why are you interested in this role?", kind: "custom", inputType: "textarea" })],
+        PROFILE,
+        ANSWERS,
+      );
+      expect(plan.planned[0]?.action).toEqual({
+        type: "fill",
+        value: "Because I have spent two years building payment tooling.",
+      });
+      expect(plan.planned[0]?.source).toBe("answer-bank");
+    });
+  });
+
   it("reports required fields it had to leave empty", () => {
     const plan = buildFillPlan(
       [
