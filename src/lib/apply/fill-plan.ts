@@ -230,7 +230,45 @@ export function matchOptionForLabel(
     }
   }
 
+  // A month stored as a number against a list of month names. Education date
+  // pickers ask for the month as a dropdown reading January...December, and a
+  // stored "09" matches none of the twelve — a live run left both the start
+  // and end month of a degree empty for exactly this reason.
+  //
+  // Only for a field whose label says month: "09" against an arbitrary list is
+  // the number nine, not September.
+  if (/\bmonth\b/i.test(label)) {
+    const named = monthNameFor(value);
+    if (named) {
+      const found = options.find((option) => option.trim().toLowerCase().startsWith(named));
+      if (found) return found;
+    }
+  }
+
   return null;
+}
+
+/** The month names, in the order their numbers imply. */
+const MONTH_NAMES = [
+  "january", "february", "march", "april", "may", "june",
+  "july", "august", "september", "october", "november", "december",
+];
+
+/**
+ * The month name a numeric month refers to, or null.
+ *
+ * Null for anything outside 1-12 — including "13", which a live answer bank
+ * actually held. A number that is not a month must stay unmatched and be
+ * reported, not be rounded to the nearest one.
+ */
+export function monthNameFor(value: string): string | null {
+  const trimmed = value.trim();
+  if (!/^\d{1,2}$/.test(trimmed)) return null;
+
+  const month = Number(trimmed);
+  if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+
+  return MONTH_NAMES[month - 1] ?? null;
 }
 
 /** Text-ish controls that take a typed value. */

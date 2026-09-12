@@ -20,6 +20,19 @@
  * application cannot be submitted without a POST. If something in here ever
  * tries, the attempt fails and is recorded — the run reports it rather than
  * the employer receiving it.
+ *
+ * ONE EXCEPTION, AND WHAT IT DOES NOT COST
+ *
+ * Attaching a document is itself a network request: Greenhouse POSTs the file
+ * to S3 the instant the input receives it. With that blocked, uploads fail
+ * silently — a live run put the resume into the input, the page never rendered
+ * it, and the field stayed empty while the run claimed otherwise.
+ *
+ * So while a document is being attached, a non-GET aimed at a host that is NOT
+ * the form's is allowed through, and every one is listed in the result. A
+ * request to the form's own host — the only shape a submission can take — is
+ * refused whether that window is open or not. The exception can carry a file
+ * to a storage bucket; it cannot submit an application.
  * ─────────────────────────────────────────────────────────────────────────
  */
 
@@ -65,6 +78,15 @@ export interface ShadowRunResult {
    * the reader to ignore the warning that matters.
    */
   blockedTrackers: number;
+  /**
+   * Non-GET requests allowed through while a document was being attached.
+   *
+   * Listed rather than counted: this is the one exception the guard makes, and
+   * an exception nobody can see is one nobody can check. None of these can be
+   * a submission — a submission goes to the form's own host, which is refused
+   * whether the upload window is open or not.
+   */
+  allowedUploads: string[];
 }
 
 /**
@@ -127,6 +149,12 @@ export async function runShadowApply(options: {
   let blockedTrackers = 0;
   const formHost = new URL(options.url).host;
 
+  /**
+   * Open only while a document is being attached. See the note below.
+   */
+  let uploadWindow = false;
+  const allowedUploads: string[] = [];
+
   // The guard. Installed before the first navigation and never lifted while
   // this function drives the page.
   await context.route("**/*", async (route, request) => {
@@ -135,6 +163,28 @@ export async function runShadowApply(options: {
     // Same host as the form: this is the shape a submission takes, and it is
     // the one worth reporting loudly. Everything else is third-party noise.
     const sameHost = safeHost(request.url()) === formHost;
+
+    // ── The upload window ───────────────────────────────────────────────
+    // Attaching a file is itself a network request. Greenhouse POSTs the
+    // document straight to S3 the moment the input receives it, and with that
+    // POST blocked the attachment silently never completes — which is exactly
+    // what a live run showed: the file went into the input, the page never
+    // rendered it, and the resume field stayed empty.
+    //
+    // So during an attachment, and only then, a non-GET to a host that is NOT
+    // the form's is allowed through and recorded.
+    //
+    // This does not weaken the promise the guard exists to keep. Submitting
+    // an application is a request to the form's own host, and that stays
+    // blocked unconditionally — in the window, out of it, always. What is
+    // allowed here cannot submit anything; it can only carry a file to a
+    // storage bucket. Every one that goes through is listed in the result, so
+    // the exception is auditable rather than invisible.
+    if (uploadWindow && !sameHost) {
+      allowedUploads.push(`${request.method()} ${request.url()}`);
+      return route.continue();
+    }
+
     if (sameHost) blockedSubmissions.push(`${request.method()} ${request.url()}`);
     else blockedTrackers += 1;
 
@@ -170,7 +220,15 @@ export async function runShadowApply(options: {
 
     const outcomes: FieldOutcome[] = [];
     for (const item of plan.planned) {
-      outcomes.push(await applyOne(page, item));
+      // The window is opened per attachment and closed immediately after, so
+      // it is measured in seconds and covers one action rather than the run.
+      const isAttachment = item.action.type === "attach";
+      if (isAttachment) uploadWindow = true;
+      try {
+        outcomes.push(await applyOne(page, item));
+      } finally {
+        if (isAttachment) uploadWindow = false;
+      }
     }
 
     // A field waiting on an emailed code, before the person is asked for
@@ -226,6 +284,7 @@ export async function runShadowApply(options: {
       loginRequired: form.loginRequired,
       blockedSubmissions,
       blockedTrackers,
+      allowedUploads,
     };
 
     if (options.handoff) {
@@ -535,6 +594,16 @@ async function attachDocument(
     buffer: readFileSync(path),
   };
 
+  // Whether the page already said this filename before anything was attached.
+  // Without this the fallback check below would call it a success on any form
+  // that happens to mention the name — and a resume called "resume.pdf" on a
+  // page with the words "resume.pdf" in its help text is not far-fetched.
+  const filenameWasOnPage = await page
+    .locator("body")
+    .innerText({ timeout: 5_000 })
+    .then((text) => text.includes(filename))
+    .catch(() => false);
+
   try {
     await input.setInputFiles(upload, { timeout: 5_000 });
   } catch {
@@ -566,30 +635,84 @@ async function attachDocument(
       const message = error instanceof Error ? error.message.split("\n")[0] : String(error);
       return { label, status: "failed", detail: message ?? "unknown error", source };
     } finally {
+      // Short timeout, because the element may well be gone: several ATS
+      // platforms replace the input the moment it receives a file. Without
+      // one this waits the full default thirty seconds to restore styling on
+      // an element that no longer exists.
       await input
-        .evaluate((element: HTMLElement, style: string) => {
-          if (style) element.setAttribute("style", style);
-          else element.removeAttribute("style");
-        }, revealed)
+        .evaluate(
+          (element: HTMLElement, style: string) => {
+            if (style) element.setAttribute("style", style);
+            else element.removeAttribute("style");
+          },
+          revealed,
+          { timeout: 2_000 },
+        )
         .catch(() => undefined);
     }
   }
 
-  // Read it back. This is the check that matters.
-  const attached = await input
-    .evaluate((element: HTMLInputElement) => element.files?.[0]?.name ?? "")
-    .catch(() => "");
+  // Read it back. This is the check that matters — but it has to cope with
+  // the page reacting to the upload, which the first version did not.
+  //
+  // On Greenhouse the input is REMOVED from the DOM the moment a file is
+  // attached, and replaced by a chip showing the filename. Reading
+  // `input.files` through the original handle then hangs until it times out
+  // and reports nothing attached — on a form where the resume went in
+  // perfectly. That false negative is worse than no check: it tells the
+  // person to go and do something that is already done.
+  //
+  // So: ask the element if it is still there, and otherwise take the
+  // filename appearing on the page as the evidence it went in. The "was it
+  // there before" comparison is what keeps that second test honest.
+  const attached = await page
+    .evaluate(
+      (selector) => {
+        const element = document.querySelector(selector) as HTMLInputElement | null;
+        if (!element) return null; // gone: the page swallowed it, see below
+        return element.files?.[0]?.name ?? "";
+      },
+      fileSelectorFor(field),
+    )
+    .catch(() => null);
 
-  if (attached.length === 0) {
+  if (typeof attached === "string" && attached.length > 0) {
+    return { label, status: "attached", detail: `${attached} (${describeKind(kind)})`, source };
+  }
+
+  // The input is gone, or still empty. Either way the page's own text is the
+  // remaining evidence: a filename that was not on the page before and is now
+  // means the upload was accepted and rendered.
+  //
+  // Polled rather than read once. The chip showing the filename is rendered by
+  // the page's own JavaScript in response to the change event, which has not
+  // necessarily happened by the time setInputFiles returns — reading
+  // immediately reported "the page did not take the resume" on a form that had
+  // taken it perfectly well a few hundred milliseconds later.
+  const showsFilename = !filenameWasOnPage && (await waitForText(page, filename, 5_000));
+
+  if (showsFilename) {
     return {
       label,
-      status: "failed",
-      detail: `The page did not take the ${describeKind(kind)} — attach ${filename} yourself.`,
+      status: "attached",
+      detail: `${filename} (${describeKind(kind)})`,
       source,
     };
   }
 
-  return { label, status: "attached", detail: `${attached} (${describeKind(kind)})`, source };
+  return {
+    label,
+    status: "failed",
+    detail: `The page did not take the ${describeKind(kind)} — attach ${filename} yourself.`,
+    source,
+  };
+}
+
+/** The CSS selector addressing a field's file input, for a fresh lookup. */
+function fileSelectorFor(field: PlannedField["field"]): string {
+  if (field.elementId) return `input[type="file"]#${cssEscape(field.elementId)}`;
+  if (field.name) return `input[type="file"][name="${cssEscape(field.name)}"]`;
+  return 'input[type="file"]';
 }
 
 /**
@@ -731,4 +854,28 @@ function record(outcomes: FieldOutcome[], outcome: FieldOutcome): void {
   const index = outcomes.findIndex((existing) => existing.label === outcome.label);
   if (index >= 0) outcomes[index] = outcome;
   else outcomes.push(outcome);
+}
+
+/**
+ * Wait for a piece of text to appear anywhere on the page.
+ *
+ * Used to confirm an upload landed on forms that replace the file input with
+ * a chip naming the file. The page renders that chip in its own time, so this
+ * polls instead of reading once.
+ */
+async function waitForText(page: Page, needle: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const found = await page
+      .locator("body")
+      .innerText({ timeout: 2_000 })
+      .then((text) => text.includes(needle))
+      .catch(() => false);
+
+    if (found) return true;
+    await page.waitForTimeout(250);
+  }
+
+  return false;
 }

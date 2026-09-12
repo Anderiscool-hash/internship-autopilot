@@ -207,6 +207,13 @@ async function main(): Promise<void> {
   } else {
     console.log("Guard: no submission attempt was made.");
   }
+  if (result.allowedUploads.length > 0) {
+    console.log(
+      `Guard: ${result.allowedUploads.length} upload request(s) allowed while attaching a ` +
+        "document (never to the form's own host, so none could be a submission):",
+    );
+    for (const request of result.allowedUploads) console.log(`  ${request}`);
+  }
 
   const run = await db.shadowRun.create({
     data: {
