@@ -41,14 +41,14 @@ import { chromium, type Browser, type Page } from "playwright";
 import type { AnswerEntry } from "../answers/match";
 import { describeKind, type DocumentKind } from "../documents/kind-for-field";
 import { isVerificationField } from "../email/detect-field";
-import { InboxError, waitForVerification, type InboxConfig } from "../email/inbox";
+import { waitForVerification, type InboxConfig } from "../email/inbox";
 import {
   buildFillPlan,
   matchOptionForLabel,
   type FillProfile,
   type PlannedField,
 } from "./fill-plan";
-import { askInPage, showStatus } from "./ask-overlay";
+import { askInPage, classifyMailCheck, showStatus, type MailboxCheck } from "./ask-overlay";
 import { questionsToAsk } from "./ask-plan";
 import { readOpenForm } from "./read-form";
 import type { FieldOutcome } from "./shadow-types";
@@ -263,8 +263,15 @@ export async function runShadowApply(options: {
     }
 
     // A field waiting on an emailed code, before the person is asked for
-    // anything: if the mailbox can supply it, there is no question to put.
-    if (options.verification) {
+    // anything — but only when nothing else is about to offer a way to fetch
+    // one. Once `ask` is on, the ask panel gives the person a "check my
+    // email" button on this exact field, pressed after they ask the portal to
+    // send a code; polling here first would be the up-front block this
+    // function's own header comment describes — up to two minutes waiting on
+    // mail that cannot have arrived, since nothing has asked the portal to
+    // send it yet. The plain `--verify` CLI path (no `--ask`) has no panel to
+    // put a button in, so it keeps this original up-front behaviour.
+    if (options.verification && !options.ask) {
       await resolveVerificationFields(page, plan.planned, outcomes, options.verification);
     }
 
@@ -285,23 +292,52 @@ export async function runShadowApply(options: {
         );
       }
 
-      await askInPage(page, questions, async (item, answer) => {
-        // Put it in the form straight away, using the same routine as the
-        // automatic pass so a dropdown is still chosen rather than typed at.
-        const filled = await applyOne(page, {
-          field: item.field,
-          action: { type: "fill", value: answer },
-          source: "none",
-        });
+      // Turns on the panel's "check my email" button for whatever question is
+      // a verification field. Left undefined when no mailbox was configured,
+      // which is exactly what makes the button not appear at all — see
+      // shouldOfferMailButton in ask-overlay.ts.
+      const mailbox: MailboxCheck | undefined = options.verification
+        ? {
+            config: options.verification.config,
+            since: options.verification.since,
+            fromDomain: options.verification.fromDomain,
+          }
+        : undefined;
 
-        // Replace the earlier "could not fill" with what actually happened.
-        const index = outcomes.findIndex((outcome) => outcome.label === item.question);
-        const recorded: FieldOutcome = { ...filled, source: "asked" };
-        if (index >= 0) outcomes[index] = recorded;
-        else outcomes.push(recorded);
+      await askInPage(
+        page,
+        questions,
+        async (item, answer, source) => {
+          // Put it in the form straight away, using the same routine as the
+          // automatic pass so a dropdown is still chosen rather than typed at.
+          const filled = await applyOne(page, {
+            field: item.field,
+            action: { type: "fill", value: answer },
+            source: "none",
+          });
 
-        await options.onAnswer?.(item.question, answer);
-      });
+          // Replace the earlier "could not fill" with what actually happened.
+          // A code that came from the mailbox is marked "email", same as the
+          // up-front CLI path marks it — the one source the candidate did not
+          // type and cannot check at a glance, per FieldOutcome's own doc.
+          const index = outcomes.findIndex((outcome) => outcome.label === item.question);
+          const recorded: FieldOutcome = {
+            ...filled,
+            source: source === "email" ? "email" : "asked",
+          };
+          if (index >= 0) outcomes[index] = recorded;
+          else outcomes.push(recorded);
+
+          // A verification code is single-use and worthless on the next
+          // application — storing it would put today's expired code on
+          // tomorrow's form. Only what the person actually typed is ever
+          // handed to the caller for the answer bank.
+          if (source !== "email") {
+            await options.onAnswer?.(item.question, answer);
+          }
+        },
+        mailbox,
+      );
     }
 
     await page.screenshot({ path: options.screenshotPath, fullPage: true });
@@ -835,7 +871,8 @@ async function resolveVerificationFields(
     );
     console.log(`\nWatching your mailbox for the code for "${item.field.label}".`);
 
-    let found = null;
+    let found: Awaited<ReturnType<typeof waitForVerification>> = null;
+    let caughtError: unknown;
     try {
       found = await waitForVerification({
         config: options.config,
@@ -844,23 +881,31 @@ async function resolveVerificationFields(
         timeoutMs: options.timeoutMs,
       });
     } catch (error) {
+      caughtError = error;
+    }
+
+    await showStatus(page, null);
+
+    // Same three-way verdict the on-demand panel button uses (classifyMailCheck
+    // in ask-overlay.ts) — kept as one shared judgment so the two paths cannot
+    // quietly drift into disagreeing about what a link, a miss, or a mailbox
+    // error means.
+    const outcome = classifyMailCheck(found, caughtError);
+
+    if (outcome.status === "error") {
       // A mailbox that cannot be reached is reported and the person is asked
       // instead. It is not a reason to fail the run.
-      const detail = error instanceof InboxError ? error.message : String(error);
-      await showStatus(page, null);
-      console.log(`  Could not read the mailbox: ${detail}`);
+      console.log(`  Could not read the mailbox: ${outcome.message}`);
       record(outcomes, {
         label: item.field.label,
         status: "skipped",
-        detail: `Mailbox unreachable, so the code was not fetched: ${detail}`,
+        detail: `Mailbox unreachable, so the code was not fetched: ${outcome.message}`,
         source: "none",
       });
       continue;
     }
 
-    await showStatus(page, null);
-
-    if (found === null) {
+    if (outcome.status === "empty") {
       console.log("  No verification mail arrived. You will be asked for the code instead.");
       record(outcomes, {
         label: item.field.label,
@@ -872,14 +917,14 @@ async function resolveVerificationFields(
       continue;
     }
 
-    if (found.kind === "link") {
+    if (outcome.status === "link") {
       // Not followed. Navigating away from a half-filled form loses everything
       // typed into it, and this run has just spent a minute filling it.
-      console.log(`  The mail carried a confirmation link rather than a code: ${found.value}`);
+      console.log(`  The mail carried a confirmation link rather than a code: ${outcome.value}`);
       record(outcomes, {
         label: item.field.label,
         status: "skipped",
-        detail: `A confirmation link arrived instead of a code — open it yourself: ${found.value}`,
+        detail: `A confirmation link arrived instead of a code — open it yourself: ${outcome.value}`,
         source: "none",
       });
       continue;
@@ -887,10 +932,10 @@ async function resolveVerificationFields(
 
     const filled = await applyOne(page, {
       field: item.field,
-      action: { type: "fill", value: found.value },
+      action: { type: "fill", value: outcome.value },
       source: "none",
     });
-    console.log(`  Code ${found.value} from "${found.subject}" (${found.from}).`);
+    console.log(`  Code ${outcome.value} from "${outcome.subject}" (${outcome.from}).`);
     record(outcomes, { ...filled, source: "email" });
   }
 }

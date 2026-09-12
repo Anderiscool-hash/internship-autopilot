@@ -52,7 +52,9 @@ export default async function MailboxSettingsPage({ searchParams }: PageProps) {
         {status.configured ? (
           <>
             <strong>Configured.</strong> {status.user} at {status.host}:{status.port}
-            {status.tls ? " over TLS" : " WITHOUT TLS"}.
+            {status.tls ? " over TLS" : " WITHOUT TLS"}. That means a server, address and
+            password are all present — not that they work; use &ldquo;Test connection&rdquo;
+            below to be sure.
           </>
         ) : (
           <>

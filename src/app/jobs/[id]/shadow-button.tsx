@@ -6,6 +6,7 @@
  * something the viewer would never see.
  */
 
+import { mailboxStatus } from "@/lib/email/env-file";
 import { startShadowRunAction } from "./shadow-actions";
 
 export function ShadowButton({
@@ -19,6 +20,8 @@ export function ShadowButton({
 }) {
   if (!local || !hasProfile) return null;
 
+  const configured = mailboxStatus().configured;
+
   return (
     <form action={startShadowRunAction} className="shadow-start">
       <input type="hidden" name="jobId" value={jobId} />
@@ -28,7 +31,15 @@ export function ShadowButton({
       <small>
         Opens the real form in a browser and fills what it can from your profile
         and answers. It never submits — when it finishes, the window is yours to
-        check and send.
+        check and send.{" "}
+        {configured ? (
+          "It will also check your mailbox for a verification code if the form asks for one."
+        ) : (
+          <>
+            No mailbox is configured, so it cannot read a verification code for
+            you — <a href="/settings/mailbox">set one up</a>.
+          </>
+        )}
       </small>
     </form>
   );

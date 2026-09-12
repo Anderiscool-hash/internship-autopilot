@@ -19,6 +19,8 @@ import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { getProfile } from "@/lib/candidate/store";
 import { isLocalHost } from "@/lib/auth/session";
+import { mailboxStatus } from "@/lib/email/env-file";
+import { daemonStatus, submitToDaemon } from "@/lib/apply/daemon-client";
 
 export async function startShadowRunAction(form: FormData): Promise<void> {
   const jobId = form.get("jobId");
@@ -41,14 +43,39 @@ export async function startShadowRunAction(form: FormData): Promise<void> {
     )}`);
   }
 
+  // Read an emailed verification code automatically when a mailbox is set up
+  // — the same opt-in `npm run shadow -- --verify` gives the CLI, just decided
+  // by configuration instead of a flag, since nobody sitting at this button
+  // gets the chance to type one.
+  const verify = mailboxStatus().configured;
+
+  // Hand it to the daemon when one is up, same as scripts/shadow-apply.ts: it
+  // already has a browser warm, so the window opens sooner than spawning a
+  // fresh process would.
+  const daemon = await daemonStatus();
+  if (daemon) {
+    const accepted = await submitToDaemon({ jobId, handoff: true, verify });
+    if (accepted) {
+      redirect(`/jobs/${jobId}?saved=${encodeURIComponent(
+        "Opening the application form in a browser window. It will fill itself, then hand over to you.",
+      )}`);
+    }
+    // The daemon refused it (or died between the health check and here) —
+    // fall through to spawning a standalone run below.
+  }
+
   // Detached: the run outlives this request. shell: true because npm on
   // Windows is a shim rather than an executable.
-  const child = spawn("npm", ["run", "shadow", "--", jobId, "--handoff"], {
-    cwd: process.cwd(),
-    detached: true,
-    stdio: "ignore",
-    shell: true,
-  });
+  const child = spawn(
+    "npm",
+    ["run", "shadow", "--", jobId, "--handoff", ...(verify ? ["--verify"] : [])],
+    {
+      cwd: process.cwd(),
+      detached: true,
+      stdio: "ignore",
+      shell: true,
+    },
+  );
   child.unref();
 
   redirect(`/jobs/${jobId}?saved=${encodeURIComponent(
