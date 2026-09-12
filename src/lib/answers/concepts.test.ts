@@ -33,6 +33,83 @@ describe("conceptOf", () => {
     expect(conceptOf("Describe a project you are proud of.")).toBeNull();
     expect(conceptOf("Why this company?")).toBeNull();
   });
+
+  it("does not generalize a posting-specific date into a concept", () => {
+    // From the same shadow run: "I am available to begin a potential
+    // full-time role before September 2028." The date is specific to one
+    // posting, so this deliberately stays outside the vocabulary — a stored
+    // "yes" here would still be wrong the moment another posting names a
+    // different deadline. worthStoring's fallback rules (ask-plan.ts) are
+    // what would otherwise decide this, and only conceptOf recognising it
+    // would make it look like a general, reusable answer.
+    expect(
+      conceptOf("I am available to begin a potential full-time role before September 2028"),
+    ).toBeNull();
+  });
+
+  // Every wording below is quoted verbatim from a live shadow run against
+  // Coinbase's Greenhouse form — the 8 acknowledgement/consent fields that
+  // application had no stored answer for.
+  it("names the acknowledgement concepts from the Coinbase shadow run", () => {
+    expect(
+      conceptOf(
+        "Please confirm receipt of the above linked Global Data Privacy Notice and US Arbitration Agreement.",
+      ),
+    ).toBe("privacy-notice-ack");
+    expect(
+      conceptOf(
+        "I understand that Coinbase may use AI tools to assist in the application and interview process.",
+      ),
+    ).toBe("ai-use-disclosure");
+    expect(
+      conceptOf("Which of the following best describes how you use AI tools today?"),
+    ).toBe("ai-usage-habits");
+    expect(
+      conceptOf(
+        "I certify that the information provided in this application is true and correct to the best of my knowledge. I understand that any false statements or omissions may result in disqualification from employment consideration or, if employed, in termination.",
+      ),
+    ).toBe("certification-of-truthfulness");
+    expect(
+      conceptOf(
+        "Are you a current government official or were you a government official in the last five years (e.g., employee of a government agency or a government owned/controlled company, holder of public office or a civil service position)?",
+      ),
+    ).toBe("government-official-status");
+    expect(
+      conceptOf(
+        "Are you a close relative of a government official (i.e., child/step-child, spouse/partner, parent/guardian, aunt/uncle, first cousin, in-law)?",
+      ),
+    ).toBe("government-official-relative");
+  });
+
+  it("reads a lone arbitration mention as the arbitration concept, not privacy", () => {
+    // Coinbase's field bundles both into one checkbox, which privacy-notice-ack
+    // wins (tested above) — but an employer that asks for arbitration alone
+    // must not be read as a privacy-notice question.
+    expect(conceptOf("I have read and agree to the Arbitration Agreement.")).toBe(
+      "arbitration-agreement-ack",
+    );
+  });
+
+  it("does not read 'a government official's relative' as the official themselves", () => {
+    // The literal phrase "government official" appears in both questions.
+    // Without testing the relative pattern first, this would be misread as
+    // the candidate claiming to BE the official — a materially different,
+    // and wrong, answer.
+    expect(
+      conceptOf("Is a relative of yours currently serving as a government official?"),
+    ).toBe("government-official-relative");
+  });
+
+  it("does not read the AI-usage survey as the AI-use disclosure, or the reverse", () => {
+    // Both share the words "AI tools". "describes how you use" and "assist in
+    // the application process" are what actually tell them apart.
+    expect(conceptOf("How do you use AI tools in your day-to-day work?")).toBe(
+      "ai-usage-habits",
+    );
+    expect(
+      conceptOf("This employer may use AI tools to assist in the hiring process."),
+    ).toBe("ai-use-disclosure");
+  });
 });
 
 describe("scopeMarkers", () => {
@@ -117,6 +194,89 @@ describe("sameQuestion", () => {
     // matcher's job.
     expect(
       sameQuestion("Why this company?", "Why do you want to work here?"),
+    ).toBe(false);
+  });
+
+  it("matches Coinbase's bundled privacy/arbitration field to the general privacy answer", () => {
+    expect(
+      sameQuestion(
+        "Please confirm receipt of the above linked Global Data Privacy Notice and US Arbitration Agreement.",
+        "I confirm that I have received and reviewed this company's data privacy notice.",
+      ),
+    ).toBe(true);
+  });
+
+  it("still matches an arbitration question naming a country in the document's own title", () => {
+    // The document is called "US Arbitration Agreement" — the literal "US"
+    // would otherwise be read by scopeMarkers as a work-country scope and
+    // refuse a match against the unscoped stored version, the same failure
+    // scope-checking exists to prevent, just triggered by a false positive.
+    // Only work-authorization and sponsorship are scope-sensitive; this
+    // concept is not, so the stray "US" must not block the match.
+    expect(
+      sameQuestion(
+        "I agree to the US Arbitration Agreement.",
+        "I have read and agree to this company's arbitration agreement.",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not let a privacy-notice acknowledgement match an arbitration-agreement question", () => {
+    // The two are stored as separate answers (spec: don't over-collapse).
+    // A person may accept a privacy notice without having read or agreed to
+    // arbitrate disputes — conflating them would misrepresent a real consent.
+    expect(
+      sameQuestion(
+        "I acknowledge the company's Privacy Notice.",
+        "I have read and agree to this company's arbitration agreement.",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not let a work-authorization question match the AI-in-hiring disclosure", () => {
+    // Precedent hazard: the existing work-authorization/sponsorship confusion
+    // proved two "yes/no legal-sounding" questions can collide if the matcher
+    // is loose. Same shape of risk here, different pair.
+    expect(
+      sameQuestion(
+        "Are you legally authorized to work in the United States?",
+        "I understand that this employer may use AI tools to assist in the application and interview process.",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not let the government-official question match the close-relative question", () => {
+    // Same hazard as work-authorization vs sponsorship: both are legal
+    // yes/no questions sharing most of their vocabulary ("government
+    // official"), but "are you one" and "are you related to one" have
+    // different, non-interchangeable answers.
+    expect(
+      sameQuestion(
+        "Are you a current government official or were you a government official in the last five years?",
+        "Are you a close relative of a government official (i.e., child/step-child, spouse/partner, parent/guardian, aunt/uncle, first cousin, in-law)?",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not let the AI-usage survey match the AI-in-hiring disclosure", () => {
+    // Both mention "AI tools"; only one is a statement about the candidate's
+    // own habits and only the other is an acknowledgement about the employer.
+    // Answering one with the stored answer for the other would submit the
+    // wrong claim.
+    expect(
+      sameQuestion(
+        "Which of the following best describes how you use AI tools today?",
+        "I understand that this employer may use AI tools to assist in the application and interview process.",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not let the certification match a nearby eligibility question", () => {
+    expect(
+      sameQuestion(
+        "I certify that the information provided in this application is true and correct to the best of my knowledge.",
+        "Have you ever been convicted of a felony?",
+      ),
     ).toBe(false);
   });
 });

@@ -24,7 +24,12 @@
 export type QuestionInput = "text" | "long-text" | "choice";
 
 /** Where a question sits on the page. */
-export type QuestionGroup = "eligibility" | "logistics" | "about-you" | "demographic";
+export type QuestionGroup =
+  | "eligibility"
+  | "acknowledgements"
+  | "logistics"
+  | "about-you"
+  | "demographic";
 
 export interface QuestionnaireItem {
   /**
@@ -102,6 +107,84 @@ export const QUESTIONNAIRE: QuestionnaireItem[] = [
     options: YES_NO,
     isLegal: true,
     hint: "Stored as a general answer. If it is ever yes for one employer, change it on that form.",
+  },
+  {
+    question:
+      "Are you a current government official, or have you been a government official within the last five years (for example, an employee of a government agency or government-owned company, a holder of public office, or a civil service position)?",
+    group: "eligibility",
+    input: "choice",
+    options: YES_NO,
+    isLegal: true,
+    hint:
+      "A standard anti-corruption screening question used by regulated employers (banks, government contractors, and similar). Rare, but genuinely the same question everywhere it appears.",
+  },
+  {
+    question:
+      "Are you a close relative of a government official (for example: child or step-child, spouse or partner, parent or guardian, aunt or uncle, first cousin, or in-law)?",
+    group: "eligibility",
+    input: "choice",
+    options: YES_NO,
+    isLegal: true,
+    hint: "Paired with the question above and asked by the same category of employer.",
+  },
+
+  // ── Acknowledgements & consents ──────────────────────────────────────
+  // The checkbox questions a form makes you tick before it lets you submit.
+  // Worded generally on purpose — an employer's own privacy notice, AI-use
+  // notice, or certification text is specific to them, but the fact of being
+  // asked to acknowledge one is not. See concepts.ts for how a compound field
+  // like Coinbase's ("the above linked Global Data Privacy Notice and US
+  // Arbitration Agreement") resolves to one of these.
+  {
+    question:
+      "I confirm that I have received and reviewed this company's data privacy notice.",
+    group: "acknowledgements",
+    input: "choice",
+    options: YES_NO,
+    isLegal: true,
+    hint: "Asked by nearly every employer now, in some wording, before a form will submit.",
+  },
+  {
+    question: "I have read and agree to this company's arbitration agreement.",
+    group: "acknowledgements",
+    input: "choice",
+    options: YES_NO,
+    isLegal: true,
+    hint:
+      "A binding legal agreement, not just an acknowledgement, and its actual terms differ by employer. Leave blank if you would rather read each one before agreeing.",
+  },
+  {
+    question:
+      "I understand that this employer may use AI tools to assist in the application and interview process.",
+    group: "acknowledgements",
+    input: "choice",
+    options: YES_NO,
+    isLegal: true,
+    hint: "An acknowledgement that the employer may use AI, not a statement about how you use it — that's the next question.",
+  },
+  {
+    question:
+      "Which of the following best describes how you use AI tools in your work today?",
+    group: "acknowledgements",
+    input: "choice",
+    options: [
+      "I do not currently use AI tools",
+      "I use AI tools occasionally, for specific tasks",
+      "I use AI tools regularly, as part of my normal workflow",
+      "I use AI tools extensively; they are central to how I work",
+      "I don't wish to answer",
+    ],
+    hint: "Increasingly asked as part of an employer's AI-in-hiring disclosure. A self-report, not a legal claim.",
+  },
+  {
+    question:
+      "I certify that the information I have provided in this application is true and correct to the best of my knowledge, and I understand that false statements or omissions may affect my candidacy or employment.",
+    group: "acknowledgements",
+    input: "choice",
+    options: YES_NO,
+    isLegal: true,
+    hint:
+      "A claim about the application you are actually submitting, not a blanket promise — only store \"yes\" if you intend to keep every application accurate, since a stored answer here is replayed automatically.",
   },
 
   // ── Logistics ─────────────────────────────────────────────────────────
@@ -238,6 +321,11 @@ export const GROUP_META: Record<QuestionGroup, { title: string; blurb: string }>
     blurb:
       "The questions that decide whether a job is worth applying to at all. Nothing here is ever assumed — a blank stays blank and stops the run rather than being guessed.",
   },
+  acknowledgements: {
+    title: "Acknowledgements & consents",
+    blurb:
+      "The checkbox questions a form makes you tick before it lets you submit — privacy notices, arbitration agreements, AI-use disclosures, and the like. Worded generally so one answer covers every employer's version.",
+  },
   logistics: {
     title: "Logistics",
     blurb: "Asked by most employers, and rarely different between them.",
@@ -257,6 +345,7 @@ export const GROUP_META: Record<QuestionGroup, { title: string; blurb: string }>
 /** The groups, in the order they are shown. */
 export const GROUP_ORDER: QuestionGroup[] = [
   "eligibility",
+  "acknowledgements",
   "logistics",
   "about-you",
   "demographic",
