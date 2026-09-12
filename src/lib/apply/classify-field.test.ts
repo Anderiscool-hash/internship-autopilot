@@ -73,11 +73,18 @@ describe("classifyFieldLabel", () => {
   it("calls a readable but unfamiliar question custom, not unknown", () => {
     // "custom" says the answer bank must supply this; "unknown" says we cannot
     // describe the field at all. Real Greenhouse forms are full of the former.
-    expect(classifyFieldLabel("Company name")).toBe("custom");
-    expect(classifyFieldLabel("Current role")).toBe("custom");
+    //
+    // "Company name" and "Current role" used to be the examples here, and were
+    // correct while nothing stored a work history. Now that one exists they are
+    // profile questions — see work-education.test.ts. What belongs here is a
+    // question no profile field could ever answer.
     expect(
       classifyFieldLabel("I am available to begin a full-time role before September 2028."),
     ).toBe("custom");
+    expect(classifyFieldLabel("Which of the following best describes how you use AI tools today?")).toBe(
+      "custom",
+    );
+    expect(classifyFieldLabel("Which team are you most interested in?")).toBe("custom");
   });
 });
 

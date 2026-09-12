@@ -23,6 +23,7 @@ import { applicationUrlFor } from "../src/lib/apply/application-url";
 import { runShadowApply } from "../src/lib/apply/shadow";
 import { worthStoring } from "../src/lib/apply/ask-plan";
 import { documentsForApply } from "../src/lib/documents/store";
+import { historyForApply } from "../src/lib/candidate/history";
 import { inboxConfig } from "../src/lib/email/inbox";
 import { senderDomainFor } from "../src/lib/email/detect-field";
 import { conceptOf } from "../src/lib/answers/concepts";
@@ -87,6 +88,11 @@ async function main(): Promise<void> {
   // anything not saved is reported as a gap rather than silently skipped.
   const documents = await documentsForApply(db, profile.id);
 
+  // Work history and education: the employment and education blocks most
+  // forms require. Empty lists simply mean those fields are left for the
+  // person, exactly as before.
+  const history = await historyForApply(db, profile.id);
+
   // A mailbox to read the verification code from, if one is configured and the
   // run was asked for it. Opt-in twice on purpose: the variables have to be
   // set AND --verify passed, because nothing should connect to a personal
@@ -129,6 +135,8 @@ async function main(): Promise<void> {
       linkedinUrl: profile.linkedinUrl,
       githubUrl: profile.githubUrl,
       portfolioUrl: profile.portfolioUrl,
+      work: history.work,
+      education: history.education,
     },
     answers,
     documents,

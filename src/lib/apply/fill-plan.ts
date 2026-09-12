@@ -67,6 +67,21 @@ export interface FillPlan {
   blockingGaps: string[];
 }
 
+/** One job the candidate has held, as a form needs it. */
+export interface WorkEntry {
+  company: string;
+  title: string;
+  location: string | null;
+  isCurrent: boolean;
+}
+
+/** One programme the candidate has studied, as a form needs it. */
+export interface EducationEntry {
+  school: string;
+  degree: string;
+  fieldOfStudy: string | null;
+}
+
 /** The candidate values a form can be filled from. */
 export interface FillProfile {
   name: string;
@@ -79,6 +94,32 @@ export interface FillProfile {
   linkedinUrl: string | null;
   githubUrl: string | null;
   portfolioUrl: string | null;
+  /**
+   * Jobs held, most recent first. Application forms ask about one position —
+   * "Company name", "Title", "Current role" — and mean the current or latest
+   * one, so order is what makes these fields answerable.
+   */
+  work?: WorkEntry[];
+  /** Programmes studied, most recent first. Same reasoning as `work`. */
+  education?: EducationEntry[];
+}
+
+/**
+ * The job a form means when it asks about "your" company or title.
+ *
+ * A current role beats a past one; failing that, the most recent, which is why
+ * the caller is required to sort. Returns null rather than guessing when there
+ * is nothing on file — a form asking for an employer is not a question a
+ * blank profile can answer.
+ */
+export function currentWork(profile: FillProfile): WorkEntry | null {
+  const work = profile.work ?? [];
+  return work.find((entry) => entry.isCurrent) ?? work[0] ?? null;
+}
+
+/** The programme a form means when it asks about "your" school or major. */
+export function currentEducation(profile: FillProfile): EducationEntry | null {
+  return (profile.education ?? [])[0] ?? null;
 }
 
 /**
@@ -90,6 +131,34 @@ export interface FillProfile {
  */
 export function profileValueFor(label: string, profile: FillProfile): string | null {
   const text = label.toLowerCase();
+
+  // ── The employment block, checked first ──────────────────────────────
+  // "Company name" and "Title" are asked on nearly every form and mean the
+  // candidate's current or most recent job.
+  //
+  // These run before the personal-details rules below because the generic
+  // "name" rule would otherwise answer "Company name" with the candidate's
+  // own name — which it did, until this test caught it.
+  //
+  // Both words are ambiguous elsewhere, so the traps are excluded first.
+  // "Title" is also Mr/Ms on a personal-details block and the name of a
+  // publication on an academic one; "Company" appears in questions *about the
+  // employer* — "Have you previously been employed by this company?" — where
+  // answering with the candidate's own employer would be actively wrong.
+  if (/\bcompany\b|\bemployer\b/.test(text)) {
+    if (/previous|prior|ever|have you|worked at|employed by|why|our\b/.test(text)) return null;
+    return currentWork(profile)?.company ?? null;
+  }
+
+  if (/current role|job title|position title|\btitle\b/.test(text)) {
+    // Mr/Mrs/Dr, not a job. Matched on the honorifics themselves as well as
+    // the word "salutation", because the commonest spelling of this field is
+    // "Title (Mr/Ms/Dr)" — which says "title" and never says "salutation".
+    if (/salutation|prefix|honorific|\bmr\b|\bmrs\b|\bms\b|\bdr\b|\bmx\b/.test(text)) return null;
+    // A paper, a thesis, a portfolio piece.
+    if (/publication|thesis|paper|project|article|book\b/.test(text)) return null;
+    return currentWork(profile)?.title ?? null;
+  }
 
   if (/first\s*name/.test(text)) return profile.name.split(/\s+/)[0] ?? null;
   if (/last\s*name|surname|family\s*name/.test(text)) {
@@ -108,7 +177,14 @@ export function profileValueFor(label: string, profile: FillProfile): string | n
   // the same value looked right in a shadow run and was not, so only the
   // degree field is offered a value.
   if (/degree/.test(text)) return profile.degree;
-  if (/discipline|major|field of study/.test(text)) return null;
+
+  // Discipline is a separate question from degree — "Computer Science" versus
+  // "B.S." — and the profile's single degree string cannot answer both. It is
+  // answerable only from an education entry that records the field of study.
+  if (/discipline|major|field of study|course of study/.test(text)) {
+    return currentEducation(profile)?.fieldOfStudy ?? null;
+  }
+
   // "Country" is asked as its own field on most ATS forms and the profile
   // holds one free-text location line. A live shadow run put a street address
   // into Coinbase's Country field — a plausible-looking value that is simply

@@ -42,6 +42,16 @@ const STANDARD_PATTERNS: RegExp[] = [
   /\b(gpa)\b/i,
   /\bpronouns?\b/i,
   /\bstart date\b|\bavailability\b/i,
+  // The employment block. These are profile questions now that work history is
+  // stored — before it was, they fell through to the answer bank, where they
+  // sat unanswered on every run because no stored answer could match them.
+  //
+  // The narrow "company name" rather than a bare "company": the word also
+  // appears throughout questions *about the employer* ("have you previously
+  // been employed by this company?"), which are the candidate's to answer and
+  // must stay with the answer bank.
+  /\bcompany name\b|\bemployer name\b|\bcurrent employer\b/i,
+  /\bcurrent role\b|\bjob title\b|\bposition title\b|^title$/i,
 ];
 
 /**

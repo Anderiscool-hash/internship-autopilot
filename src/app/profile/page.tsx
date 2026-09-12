@@ -14,6 +14,8 @@ import type { ResumeSuggestions } from "@/lib/resume/parse-fields";
 import { ProfileForm } from "./profile-form";
 import { ResumeImport } from "./resume-import";
 import { Documents } from "./documents";
+import { EducationHistory, WorkHistory } from "./history";
+import { listEducation, listWork } from "@/lib/candidate/history";
 import { listDocuments } from "@/lib/documents/store";
 import { TruthLedger } from "./truth-ledger";
 
@@ -39,6 +41,8 @@ const SAVED_MESSAGES: Record<string, string> = {
   fact: "Added to the Truth Ledger.",
   deleted: "Removed from the Truth Ledger.",
   imported: "Resume read.",
+  document: "Document saved.",
+  history: "Saved.",
 };
 
 export default async function ProfilePage({ searchParams }: ProfilePageProps) {
@@ -59,6 +63,11 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
   // What is on file to attach to an application. Empty until the profile
   // exists, since a document belongs to a person.
   const documents = profile ? await listDocuments(db, profile.id) : [];
+
+  // The two blocks most application forms require and nothing could answer
+  // until there was somewhere to put them.
+  const work = profile ? await listWork(db, profile.id) : [];
+  const education = profile ? await listEducation(db, profile.id) : [];
 
   // A resume import in the URL means "show me what you read, filled into the
   // form". Nothing from it has touched the profile — the user reviews the
@@ -131,6 +140,10 @@ export default async function ProfilePage({ searchParams }: ProfilePageProps) {
       <ResumeImport aiOff={aiOff} importedFile={importedFile} />
 
       <Documents documents={documents} />
+
+      <WorkHistory work={work} />
+
+      <EducationHistory education={education} />
 
       {importedFile ? (
         <div className="notice notice-ok">
