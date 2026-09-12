@@ -73,6 +73,10 @@ export default async function ApplicationsPage({ searchParams }: TrackerPageProp
           : `${applications.length} tracked · ${countApplied(applications)} applied · ${countOutcome(applications, ApplicationOutcome.INTERVIEW)} interviews · ${countOutcome(applications, ApplicationOutcome.OFFER)} offers`}
       </p>
 
+      <p className="note">
+        <a href="/applications/export">Download CSV</a>
+      </p>
+
       {saved && SAVED_MESSAGES[saved] ? (
         <div className="notice notice-ok">{SAVED_MESSAGES[saved]}</div>
       ) : null}

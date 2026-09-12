@@ -47,6 +47,7 @@ export default async function RootLayout({
           <a href="/analytics">Analytics</a>
           <a href="/settings">Auto-apply</a>
           <a href="/settings/ai">AI</a>
+          <a href="/settings/mailbox">Mailbox</a>
           {remote ? (
             <form action={logoutAction} className="nav-signout">
               <button type="submit" className="link-button">
