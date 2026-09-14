@@ -48,7 +48,15 @@ import {
   type FillProfile,
   type PlannedField,
 } from "./fill-plan";
-import { askInPage, classifyMailCheck, showStatus, type MailboxCheck } from "./ask-overlay";
+import {
+  askInPage,
+  checkMailboxOnce,
+  classifyMailCheck,
+  installHandoffMailControl,
+  showStatus,
+  type HandoffCheckOutcome,
+  type MailboxCheck,
+} from "./ask-overlay";
 import { questionsToAsk } from "./ask-plan";
 import { computeBlockingGaps } from "./blocking-gaps";
 import { readOpenForm } from "./read-form";
@@ -287,6 +295,21 @@ export async function runShadowApply(options: {
       await resolveVerificationFields(page, plan.planned, outcomes, options.verification);
     }
 
+    // Shared by the ask panel's "check my email" button below and the
+    // persistent handoff control further down — both are opt-in to a
+    // configured mailbox, and this is the one place that decides whether one
+    // exists for this run. Left undefined when no mailbox was configured,
+    // which is exactly what makes both stay silent — see
+    // shouldOfferMailButton in ask-overlay.ts for the ask panel's half of
+    // that, and the `mailbox` guard in the `handoff` branch for the other.
+    const mailbox: MailboxCheck | undefined = options.verification
+      ? {
+          config: options.verification.config,
+          since: options.verification.since,
+          fromDomain: options.verification.fromDomain,
+        }
+      : undefined;
+
     // Everything the profile and the answer bank could cover is now in. What
     // is left is, by definition, something nobody has ever told this app — so
     // ask, fill it, and hand the answer back to be stored. The next form that
@@ -303,18 +326,6 @@ export async function runShadowApply(options: {
             "Answer them in the browser window — each answer is saved for future applications.",
         );
       }
-
-      // Turns on the panel's "check my email" button for whatever question is
-      // a verification field. Left undefined when no mailbox was configured,
-      // which is exactly what makes the button not appear at all — see
-      // shouldOfferMailButton in ask-overlay.ts.
-      const mailbox: MailboxCheck | undefined = options.verification
-        ? {
-            config: options.verification.config,
-            since: options.verification.since,
-            fromDomain: options.verification.fromDomain,
-          }
-        : undefined;
 
       await askInPage(
         page,
@@ -381,12 +392,33 @@ export async function runShadowApply(options: {
       // whole form somewhere else in order to apply — which is how a safety
       // measure ends up being switched off wholesale.
       await context.unroute("**/*");
+
+      // Most portals only email a verification code in response to the
+      // Submit click the person is about to make themselves — see the header
+      // comment on resolveVerificationFields for why the bot could never have
+      // requested one earlier. By the time that mail can exist, this function
+      // is no longer driving the page at all, so the only way to still offer
+      // "check my email" is a control that lives IN the page across whatever
+      // navigation Submit causes — installHandoffMailControl in ask-overlay.ts
+      // is that control; see its own header comment for how it survives that
+      // navigation and why the callback it registers is safe to register once.
+      //
+      // Gated on a mailbox actually being configured, same as the ask panel's
+      // button: an unconfigured run gets no control at all, not a button that
+      // fails every time it is pressed.
+      if (mailbox) {
+        await installHandoffMailControl(page, () => handleHandoffMailCheck(page, mailbox));
+      }
+
       console.log(
         "\n" +
           "─".repeat(70) +
           "\nThe form is filled and the browser is now yours.\n" +
           "The bot has stopped driving it and will not touch it again.\n" +
           "Check every field, attach your resume, then submit it yourself if you want to.\n" +
+          (mailbox
+            ? 'If the portal emails you a code, use the "Check my email for the code" button in the corner.\n'
+            : "") +
           "Close the window when you are done.\n" +
           "─".repeat(70),
       );
@@ -633,11 +665,22 @@ function escapeRegExp(value: string): string {
 
 /** Address a control by id, then by name. */
 function locatorFor(page: Page, item: PlannedField) {
-  if (item.field.elementId.length > 0) {
-    return page.locator(`#${cssEscape(item.field.elementId)}`).first();
+  return locatorForField(page, item.field);
+}
+
+/**
+ * Address a control by id, then by name, given just the two fields —
+ * `locatorFor` above pulls these off a `PlannedField`, but the field this
+ * addresses does not always come from one: `tryFillVerificationCode` below
+ * builds its field by reading whatever page is open right now, not from the
+ * fill plan that was built for the page before Submit.
+ */
+function locatorForField(page: Page, field: { elementId: string; name: string }) {
+  if (field.elementId.length > 0) {
+    return page.locator(`#${cssEscape(field.elementId)}`).first();
   }
-  if (item.field.name.length > 0) {
-    return page.locator(`[name="${cssEscape(item.field.name)}"]`).first();
+  if (field.name.length > 0) {
+    return page.locator(`[name="${cssEscape(field.name)}"]`).first();
   }
   return null;
 }
@@ -976,6 +1019,73 @@ function record(outcomes: FieldOutcome[], outcome: FieldOutcome): void {
   const index = outcomes.findIndex((existing) => existing.label === outcome.label);
   if (index >= 0) outcomes[index] = outcome;
   else outcomes.push(outcome);
+}
+
+/**
+ * What happens when the person presses the handoff control's "check my
+ * email" button (see installHandoffMailControl in ask-overlay.ts, which owns
+ * the button itself and only calls this).
+ *
+ * Two steps, and the order matters: first ask the mailbox, using the exact
+ * same judgment (classifyMailCheck) the ask panel's own button uses, so a
+ * link and an unreachable mailbox are never confused with a found code here
+ * either. Only once a code has actually turned up does the second step run —
+ * trying to put it in a field on whatever page is open right now.
+ */
+async function handleHandoffMailCheck(
+  page: Page,
+  mailbox: MailboxCheck,
+): Promise<HandoffCheckOutcome> {
+  const checked = await checkMailboxOnce(mailbox);
+
+  // Not "found": link, empty or error. Every one of those means the same
+  // thing to the person whether the ask panel's button asked or this one
+  // did, so the shapes are identical and this passes straight through rather
+  // than re-deriving anything.
+  if (checked.status !== "found") return checked;
+
+  const filled = await tryFillVerificationCode(page, checked.value);
+  return { status: filled ? "filled" : "shown", value: checked.value };
+}
+
+/**
+ * Look for a field waiting on an emailed code on the CURRENT page, and fill
+ * it if one is found.
+ *
+ * A fresh read, not a lookup into `plan.planned`: by the time a code can
+ * exist, the person has already pressed Submit, and Submit — per this file's
+ * whole reason for existing — usually navigates. The field this fills, if
+ * there is one, lives on whatever page that navigation landed on, which
+ * `buildFillPlan` never saw and may have nothing in common with the page it
+ * was built for (different ids, a different layout, possibly a page that
+ * has no such field at all). `readOpenForm` is the same reader the original
+ * fill used, so "found a field" here means the same thing it always has.
+ *
+ * Returns false — never throws — when nothing matching exists, or when a
+ * match exists but could not be filled. Either way, the caller's job is to
+ * fall back to showing the code, and a thrown error would only make that
+ * fallback look like a failure instead of the expected second path.
+ *
+ * Exported for shadow.test.ts, which drives it against a local file://
+ * fixture — the same routine production code uses, not a re-implementation
+ * of it, so the test proves what actually runs.
+ */
+export async function tryFillVerificationCode(page: Page, code: string): Promise<boolean> {
+  const form = await readOpenForm(page, page.url()).catch(() => null);
+  if (!form) return false;
+
+  const field = form.fields.find((candidate) => isVerificationField(candidate.label));
+  if (!field) return false;
+
+  const locator = locatorForField(page, field);
+  if (!locator) return false;
+
+  try {
+    await locator.fill(code, { timeout: 5_000 });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

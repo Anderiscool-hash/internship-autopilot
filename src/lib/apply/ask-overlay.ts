@@ -102,7 +102,7 @@ export function classifyMailCheck(found: VerificationResult | null, error?: unkn
  * go quickly, win or lose; they can press it again once the portal has sent
  * a code, whereas a long-blocking button reads as broken.
  */
-async function checkMailboxOnce(mailbox: MailboxCheck): Promise<MailCheckOutcome> {
+export async function checkMailboxOnce(mailbox: MailboxCheck): Promise<MailCheckOutcome> {
   const timeoutMs = mailbox.checkTimeoutMs ?? 8_000;
   try {
     const found = await waitForVerification({
@@ -436,5 +436,231 @@ export async function showStatus(page: Page, message: string | null): Promise<vo
       },
       [STATUS_SCRIPT, message] as const,
     )
+    .catch(() => undefined);
+}
+
+/**
+ * The name the persistent handoff control calls back through.
+ *
+ * Deliberately its own name, distinct from MAIL_CHECK_CALLBACK above. The ask
+ * panel's button and this one can both exist in the same run (`--ask` fills
+ * the gaps, then `--handoff` hands the finished form over) and
+ * `page.exposeFunction` throws if a name is bound twice on the same page —
+ * giving each control its own name sidesteps that question entirely rather
+ * than needing to track whether the other one already claimed it.
+ */
+const HANDOFF_CALLBACK = "__autopilotHandoffCheck";
+
+/**
+ * What one press of the handoff control's button produced, once shown to the
+ * person is worked into it.
+ *
+ * "found" from a plain mailbox check splits into two here — "filled" (the
+ * code went straight into a field on the page) and "shown" (a code arrived
+ * but no field for it could be found on whatever page this is, so the code is
+ * displayed instead) — because the panel has to say something different in
+ * each case. "link", "empty" and "error" carry the exact same meaning and
+ * shape MailCheckOutcome already gives them, so they pass straight through.
+ */
+export type HandoffCheckOutcome =
+  | { status: "filled"; value: string }
+  | { status: "shown"; value: string }
+  | { status: "link"; value: string }
+  | { status: "empty" }
+  | { status: "error"; message: string };
+
+/**
+ * The persistent handoff control, as browser source. Same reason as
+ * PANEL_SCRIPT and STATUS_SCRIPT above: a function handed to page.evaluate is
+ * compiled by esbuild first, which routes every named function through a
+ * `__name` helper that exists in this build and not in the employer's page —
+ * a serialized function dies on its first line there. This is plain text, so
+ * it arrives in the browser exactly as written.
+ *
+ * No backslashes and no regular expressions anywhere in here — a previous
+ * version of a sibling panel string lost its backslashes when it went through
+ * this file's own TypeScript template literal and came out corrupted in the
+ * browser. Simplest fix is not needing any: this widget only ever compares
+ * plain strings, so there is nothing here for that bug to happen to.
+ *
+ * Wrapped in `if (window.top !== window) return;` because addInitScript below
+ * runs this in every frame a navigation creates, not just the main one — an
+ * ATS post-submit page can carry its own iframes (a payment widget, another
+ * captcha), and without this a second, useless copy of the button would mount
+ * inside each of them.
+ */
+const HANDOFF_PANEL_SCRIPT = `
+(function () {
+  if (window.top !== window) return;
+
+  var CALLBACK_NAME = ${JSON.stringify(HANDOFF_CALLBACK)};
+
+  function mount() {
+    if (document.getElementById("autopilot-handoff")) return;
+    if (!document.body) return;
+
+    var panel = document.createElement("div");
+    panel.id = "autopilot-handoff";
+    panel.style.cssText = [
+      "position:fixed", "right:16px", "bottom:16px", "z-index:2147483647",
+      "width:300px", "max-width:calc(100vw - 32px)",
+      "background:#0d1117", "color:#e6edf3",
+      "border:1px solid #30363d", "border-radius:10px",
+      "box-shadow:0 8px 32px rgba(0,0,0,.45)",
+      "font:13px/1.5 'Segoe UI',system-ui,sans-serif", "padding:10px 12px"
+    ].join(";");
+
+    var row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:8px;align-items:center";
+
+    var button = document.createElement("button");
+    button.type = "button";
+    button.id = "autopilot-handoff-check";
+    button.textContent = "Check my email for the code";
+    button.style.cssText = "flex:1;padding:7px 10px;background:#238636;color:#fff;border:none;border-radius:6px;font:inherit;font-weight:500;cursor:pointer";
+
+    var dismiss = document.createElement("button");
+    dismiss.type = "button";
+    dismiss.textContent = "\\u00d7";
+    dismiss.title = "Dismiss";
+    dismiss.style.cssText = "padding:7px 10px;background:transparent;color:#9198a1;border:1px solid #30363d;border-radius:6px;font:inherit;cursor:pointer";
+
+    var status = document.createElement("div");
+    status.style.cssText = "font-size:12px;color:#9198a1;margin-top:8px";
+    status.textContent = "Once you have asked the form to send a code, press this.";
+
+    var code = document.createElement("div");
+    code.style.cssText = "display:none;font:700 22px/1.3 ui-monospace,Consolas,monospace;letter-spacing:.08em;color:#e6edf3;background:#161b22;border:1px solid #30363d;border-radius:6px;padding:8px 10px;margin-top:8px;user-select:all;-webkit-user-select:all;text-align:center";
+
+    row.appendChild(button);
+    row.appendChild(dismiss);
+    panel.appendChild(row);
+    panel.appendChild(status);
+    panel.appendChild(code);
+    document.body.appendChild(panel);
+
+    function setBusy(busy) {
+      button.disabled = busy;
+      button.textContent = busy ? "Checking your email..." : "Check my email for the code";
+    }
+
+    button.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      setBusy(true);
+      status.textContent = "";
+      code.style.display = "none";
+
+      var fn = window[CALLBACK_NAME];
+      if (!fn) {
+        setBusy(false);
+        status.textContent = "Mailbox check is not available.";
+        return;
+      }
+
+      fn().then(function (outcome) {
+        setBusy(false);
+        if (outcome.status === "filled") {
+          status.textContent = "Code " + outcome.value + " filled in for you.";
+        } else if (outcome.status === "shown") {
+          status.textContent = "Code received. Could not find the field for it on this page — copy it in yourself:";
+          code.textContent = outcome.value;
+          code.style.display = "block";
+        } else if (outcome.status === "link") {
+          status.textContent = "A confirmation link arrived instead of a code: " + outcome.value;
+        } else if (outcome.status === "error") {
+          status.textContent = "Could not check your mailbox: " + outcome.message;
+        } else {
+          status.textContent = "No mail has arrived yet. Ask the form to send a code, then try again.";
+        }
+      }).catch(function () {
+        setBusy(false);
+        status.textContent = "Could not check your mailbox.";
+      });
+    });
+
+    dismiss.addEventListener("click", function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      panel.remove();
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", mount);
+  } else {
+    mount();
+  }
+})();
+`;
+
+/**
+ * Keep a small "check my email for the code" control in the page for as long
+ * as the handoff window stays open.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * WHY THIS NEEDS RE-INJECTING, AND HOW
+ *
+ * Submitting the form is usually what makes the verification code exist in
+ * the first place — the portal emails it in response to that click — and a
+ * click is exactly the kind of thing that navigates the page. A panel dropped
+ * into the current document with `page.evaluate` or `addScriptTag`, the way
+ * PANEL_SCRIPT above is, does not survive that: the next document starts with
+ * none of this file's JavaScript in it, same as if the control had never been
+ * offered.
+ *
+ * `page.addInitScript` is the fix, chosen over listening for `page.on("load")`
+ * or `"framenavigated"` and re-running `addScriptTag` from Node each time.
+ * Both would probably work eventually, but an init script is run by the
+ * browser itself, before the new document's own scripts, on every navigation
+ * for as long as the page exists — there is no Node-side listener to miss, no
+ * race between "the new page finished loading" and "the old script has been
+ * re-added yet", and no need to separately handle every frame a navigation
+ * might create (addInitScript already does, which is exactly why the
+ * `window.top !== window` guard above exists). The one thing it cannot do is
+ * touch the document that is already open when it is registered — so this
+ * mounts the same script once, immediately, for that one document, the same
+ * way `showStatus` installs `__autopilotStatus` on demand rather than
+ * assuming `addScriptTag` already ran.
+ *
+ * WHY THE CALLBACK IS ONLY EXPOSED ONCE
+ *
+ * `page.exposeFunction` bindings, unlike an injected DOM panel, DO survive
+ * navigation — they are registered on the page, not the document — but
+ * calling `exposeFunction` twice with the same name throws. This function is
+ * called at most once per run (see the `handoff` branch in shadow.ts, which
+ * guards it behind "a mailbox was configured" and does not call it in a
+ * loop), so that is never a risk here. It uses its own name rather than
+ * reusing the ask panel's MAIL_CHECK_CALLBACK for a different reason: both
+ * controls can exist in the same run, and giving each its own name means
+ * neither has to know or care whether the other already claimed one.
+ * ─────────────────────────────────────────────────────────────────────────
+ *
+ * `onCheck` does the actual work — checking the mailbox and, when a code
+ * turns up, trying to fill it into whatever page is now open. That logic
+ * lives in shadow.ts, which is the only place that already knows how to find
+ * and fill a field on the live page; this function's job is only to get the
+ * button in front of the person and get their click back out.
+ */
+export async function installHandoffMailControl(
+  page: Page,
+  onCheck: () => Promise<HandoffCheckOutcome>,
+): Promise<void> {
+  await page.exposeFunction(HANDOFF_CALLBACK, onCheck);
+
+  // Every document from here on, including ones created by the very submit
+  // click this control exists for.
+  await page.addInitScript({ content: HANDOFF_PANEL_SCRIPT });
+
+  // The current document was already loaded before the line above took
+  // effect, so mount it here too — same trick showStatus uses for
+  // __autopilotStatus, and for the same reason: an init script only affects
+  // documents that do not exist yet.
+  await page
+    .evaluate((source) => {
+      const install = new Function(source);
+      install();
+    }, HANDOFF_PANEL_SCRIPT)
     .catch(() => undefined);
 }
