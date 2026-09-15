@@ -21,7 +21,7 @@
  * tries, the attempt fails and is recorded — the run reports it rather than
  * the employer receiving it.
  *
- * ONE EXCEPTION, AND WHAT IT DOES NOT COST
+ * TWO EXCEPTIONS, AND WHAT THEY DO AND DO NOT COST
  *
  * Attaching a document is itself a network request: Greenhouse POSTs the file
  * to S3 the instant the input receives it. With that blocked, uploads fail
@@ -29,10 +29,20 @@
  * it, and the field stayed empty while the run claimed otherwise.
  *
  * So while a document is being attached, a non-GET aimed at a host that is NOT
- * the form's is allowed through, and every one is listed in the result. A
- * request to the form's own host — the only shape a submission can take — is
- * refused whether that window is open or not. The exception can carry a file
- * to a storage bucket; it cannot submit an application.
+ * the form's is allowed through, and every one is listed in the result. That
+ * window never admits a request to the form's own host — the only shape a
+ * submission can take — so it can carry a file to a storage bucket and cannot
+ * submit an application.
+ *
+ * The second exception is the submit window, and it is the one that CAN send
+ * an application, so it is deliberately narrow: a same-host non-GET is refused
+ * unless a bounded window is open, and the only way to open one is
+ * `openSubmitWindow` on the handle passed to `onFilled` — which runs only
+ * after filling has finished and the result is built. It is a closure over
+ * this run's context, so nothing outside this file can hold on to the ability
+ * to open the guard, and it shuts on its wall-clock deadline and again,
+ * unconditionally, when its body returns or throws. Everything it admits is
+ * reported back to the caller.
  * ─────────────────────────────────────────────────────────────────────────
  */
 
@@ -109,6 +119,30 @@ export interface ShadowRunResult {
   allowedUploads: string[];
 }
 
+/** What came of a bounded submit window. */
+export interface SubmitWindowResult<T> {
+  value: T;
+  /** Every request the window admitted, verbatim, in order. */
+  requests: string[];
+}
+
+/**
+ * The filled page, handed to onFilled after the run is otherwise complete.
+ *
+ * openSubmitWindow is the only way anything outside this file can cause a
+ * non-GET request to leave the browser, and it is a closure over this run's
+ * context — so the guard never leaves the file that documents it, and a caller
+ * cannot hold onto the ability to lift it.
+ */
+export interface FilledHandle {
+  page: Page;
+  result: ShadowRunResult;
+  openSubmitWindow<T>(
+    ms: number,
+    body: () => Promise<T>,
+  ): Promise<SubmitWindowResult<T>>;
+}
+
 /**
  * Fill a job's application form without submitting it.
  *
@@ -142,6 +176,15 @@ export async function runShadowApply(options: {
    * switched off wholesale.
    */
   handoff?: boolean;
+  /**
+   * Called once filling is finished and the result is built, with the page
+   * still live.
+   *
+   * This is the seam the submit phase runs in. It deliberately cannot be
+   * reached before the fill completes: a defect in the filling logic must not
+   * be able to reach the one routine that can open the guard.
+   */
+  onFilled?: (handle: FilledHandle) => Promise<void>;
   /**
    * Ask the person, in the browser, for the required fields nothing could
    * fill — then put their answers in and report them for storing.
@@ -206,6 +249,17 @@ export async function runShadowApply(options: {
   let uploadWindow = false;
   const allowedUploads: string[] = [];
 
+  /**
+   * When open, same-host non-GET requests are admitted until this deadline.
+   *
+   * Modelled on uploadWindow directly above rather than on handoff's
+   * `context.unroute`: keeping one permanently-installed route handler that
+   * consults a variable means re-arming is automatic and cannot be forgotten,
+   * which is exactly the failure mode a one-way unroute invites.
+   */
+  let submitWindow: { until: number } | null = null;
+  const submittedRequests: string[] = [];
+
   // The guard. Installed before the first navigation and never lifted while
   // this function drives the page.
   await context.route("**/*", async (route, request) => {
@@ -225,14 +279,25 @@ export async function runShadowApply(options: {
     // So during an attachment, and only then, a non-GET to a host that is NOT
     // the form's is allowed through and recorded.
     //
-    // This does not weaken the promise the guard exists to keep. Submitting
-    // an application is a request to the form's own host, and that stays
-    // blocked unconditionally — in the window, out of it, always. What is
+    // This upload window does not weaken the promise the guard exists to
+    // keep. Submitting an application is a request to the form's own host, and
+    // this window never admits one — inside it, outside it, always. What is
     // allowed here cannot submit anything; it can only carry a file to a
     // storage bucket. Every one that goes through is listed in the result, so
     // the exception is auditable rather than invisible.
+    //
+    // A same-host request stays blocked unconditionally EXCEPT inside an
+    // explicitly opened submit window (see the `submitWindow` note above and
+    // the branch below): opened only after filling has completed, only by the
+    // submit phase, only for the form's own host, and only for a bounded time.
+    // Nothing else in this file, and nothing outside it, can open one.
     if (uploadWindow && !sameHost) {
       allowedUploads.push(`${request.method()} ${request.url()}`);
+      return route.continue();
+    }
+
+    if (submitWindow && sameHost && Date.now() < submitWindow.until) {
+      submittedRequests.push(`${request.method()} ${request.url()}`);
       return route.continue();
     }
 
@@ -381,6 +446,25 @@ export async function runShadowApply(options: {
       blockedTrackers,
       allowedUploads,
     };
+
+    if (options.onFilled) {
+      await options.onFilled({
+        page,
+        result,
+        openSubmitWindow: async (ms, body) => {
+          const from = submittedRequests.length;
+          submitWindow = { until: Date.now() + ms };
+          try {
+            const value = await body();
+            return { value, requests: submittedRequests.slice(from) };
+          } finally {
+            // Unconditional: a throw inside the body must not leave the guard
+            // open for whatever runs next.
+            submitWindow = null;
+          }
+        },
+      });
+    }
 
     if (options.handoff) {
       // Filling is done, so the bot stops driving and the guard comes off.
