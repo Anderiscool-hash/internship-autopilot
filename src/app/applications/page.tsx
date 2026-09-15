@@ -14,6 +14,7 @@ import { listApplications, type ApplicationWithJob } from "@/lib/applications/st
 import { columnFor, TRACKER_COLUMNS } from "@/lib/applications/machine";
 import { formatEnum } from "../jobs/format";
 import { ApplicationCard } from "./application-card";
+import type { ReviewGate } from "./review-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,20 @@ const SAVED_MESSAGES: Record<string, string> = {
   outcome: "Outcome recorded.",
   notes: "Notes saved.",
   removed: "Removed from the tracker.",
+  submitting: "Submitting. Refresh in a moment to see the result.",
+  rejected: "Left un-applied.",
+};
+
+/**
+ * Errors that need more explaining than the action can fit in a query string.
+ *
+ * Most errors arrive already written out — the state machine's own refusal
+ * message, for instance — and those are shown verbatim. A key only appears
+ * here when the useful answer is an instruction rather than a description.
+ */
+const ERROR_MESSAGES: Record<string, string> = {
+  "no-daemon":
+    "Nothing was submitted: the apply daemon is not running. Start it with `npm run daemon`, then approve again.",
 };
 
 export default async function ApplicationsPage({ searchParams }: TrackerPageProps) {
@@ -64,6 +79,34 @@ export default async function ApplicationsPage({ searchParams }: TrackerPageProp
     else byColumn.set(key, [application]);
   }
 
+  // Only the rows actually awaiting a decision get their attempt loaded. The
+  // attempts table holds every run ever made; joining it onto a whole board to
+  // fill in a panel that four cards will show is work nobody asked for.
+  const waitingIds = applications
+    .filter((application) => application.status === ApplicationStatus.WAITING_FOR_USER)
+    .map((application) => application.id);
+
+  const attempts = waitingIds.length
+    ? await db.submissionAttempt.findMany({
+        where: { applicationId: { in: waitingIds } },
+        orderBy: { startedAt: "desc" },
+        select: {
+          applicationId: true,
+          gates: true,
+          confidence: true,
+          screenshotPath: true,
+        },
+      })
+    : [];
+
+  // Newest first, so the first one seen per application is the current one.
+  const latestAttempt = new Map<string, (typeof attempts)[number]>();
+  for (const attempt of attempts) {
+    if (!latestAttempt.has(attempt.applicationId)) {
+      latestAttempt.set(attempt.applicationId, attempt);
+    }
+  }
+
   return (
     <main className="page page-wide">
       <h1>Applications</h1>
@@ -80,7 +123,9 @@ export default async function ApplicationsPage({ searchParams }: TrackerPageProp
       {saved && SAVED_MESSAGES[saved] ? (
         <div className="notice notice-ok">{SAVED_MESSAGES[saved]}</div>
       ) : null}
-      {error ? <div className="notice notice-error">{error}</div> : null}
+      {error ? (
+        <div className="notice notice-error">{ERROR_MESSAGES[error] ?? error}</div>
+      ) : null}
 
       {applications.length === 0 ? (
         <p className="empty">
@@ -99,9 +144,24 @@ export default async function ApplicationsPage({ searchParams }: TrackerPageProp
                 {items.length === 0 ? (
                   <p className="board-empty">Nothing here.</p>
                 ) : (
-                  items.map((application) => (
-                    <ApplicationCard key={application.id} application={application} />
-                  ))
+                  items.map((application) => {
+                    const attempt = latestAttempt.get(application.id);
+                    return (
+                      <ApplicationCard
+                        key={application.id}
+                        application={application}
+                        attempt={
+                          attempt
+                            ? {
+                                gates: toReviewGates(attempt.gates),
+                                confidence: attempt.confidence,
+                                screenshotPath: attempt.screenshotPath,
+                              }
+                            : null
+                        }
+                      />
+                    );
+                  })
                 )}
               </section>
             );
@@ -127,6 +187,27 @@ export default async function ApplicationsPage({ searchParams }: TrackerPageProp
         </p>
       </section>
     </main>
+  );
+}
+
+/**
+ * Narrow the attempt's stored `gates` JSON to the shape the panel renders.
+ *
+ * Prisma hands this back as an untyped JsonValue, and it was written by a
+ * different process possibly several versions ago. Casting it would move the
+ * problem to render time, where a malformed row takes the entire tracker down
+ * with it — so every entry is checked, and anything unrecognisable is simply
+ * left out rather than shown as `undefined`.
+ */
+function toReviewGates(value: unknown): ReviewGate[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (entry): entry is ReviewGate =>
+      typeof entry === "object" &&
+      entry !== null &&
+      typeof (entry as Record<string, unknown>).gate === "string" &&
+      typeof (entry as Record<string, unknown>).passed === "boolean" &&
+      typeof (entry as Record<string, unknown>).detail === "string",
   );
 }
 

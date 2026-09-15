@@ -12,6 +12,7 @@ import { allowedTransitions } from "@/lib/applications/machine";
 import type { ApplicationWithJob } from "@/lib/applications/store";
 import { formatEnum } from "../jobs/format";
 import { notesAction, outcomeAction, transitionAction, untrackAction } from "./actions";
+import { ReviewPanel, type ReviewGate } from "./review-panel";
 
 /**
  * The moves worth putting on a card, in the order a person would want them.
@@ -29,9 +30,21 @@ const OFFERED: { status: ApplicationStatus; label: string }[] = [
   { status: ApplicationStatus.JOB_CLOSED, label: "Closed" },
 ];
 
-export function ApplicationCard({ application }: { application: ApplicationWithJob }) {
+export function ApplicationCard({
+  application,
+  attempt,
+}: {
+  application: ApplicationWithJob;
+  /** The latest submission attempt, only fetched for rows awaiting review. */
+  attempt?: { gates: ReviewGate[]; confidence: number | null; screenshotPath: string | null } | null;
+}) {
   const allowed = new Set(allowedTransitions(application.status));
   const moves = OFFERED.filter((move) => allowed.has(move.status));
+  // Only WAITING_FOR_USER means "the form is filled and it is your turn". The
+  // other exception states are blocked on something else entirely, and a
+  // review panel there would invite an approval that cannot be acted on.
+  const review =
+    application.status === ApplicationStatus.WAITING_FOR_USER && attempt ? attempt : null;
 
   return (
     <article className="card">
@@ -57,6 +70,15 @@ export function ApplicationCard({ application }: { application: ApplicationWithJ
         <p className="card-sub">
           Applied {application.appliedAt.toISOString().slice(0, 10)}
         </p>
+      ) : null}
+
+      {review ? (
+        <ReviewPanel
+          applicationId={application.id}
+          gates={review.gates}
+          confidence={review.confidence}
+          screenshotPath={review.screenshotPath}
+        />
       ) : null}
 
       <div className="card-actions">

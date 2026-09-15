@@ -14,6 +14,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { ApplicationOutcome, ApplicationStatus } from "@prisma/client";
 import { db } from "@/lib/db";
+import { submitApplyRun } from "@/lib/apply/daemon-client";
 import { getProfile } from "@/lib/candidate/store";
 import {
   setNotes,
@@ -128,4 +129,65 @@ export async function untrackAction(form: FormData): Promise<void> {
   const removed = await untrackApplication(db, profile.id, applicationId);
   revalidatePath("/applications");
   back("/applications", removed ? { saved: "removed" } : { error: "Nothing to remove." });
+}
+
+/**
+ * Approve the filled form and hand it to the daemon to submit.
+ *
+ * This is the only thing in the whole application that produces an
+ * authorization, and it produces one naming the person and the moment: who
+ * said yes, and when. Never a boolean — a `true` sitting in a row months later
+ * cannot tell you whether anybody actually looked, and an authorization that
+ * cannot be attributed is not one.
+ */
+export async function approveSubmissionAction(form: FormData): Promise<void> {
+  const profile = await getProfile(db);
+  if (!profile) {
+    back("/applications", { error: "Save your profile before submitting applications." });
+  }
+
+  const applicationId = field(form, "applicationId");
+  if (applicationId === null) {
+    back("/applications", { error: "That change could not be applied." });
+  }
+
+  const runId = await submitApplyRun({
+    applicationId,
+    candidateId: profile.id,
+    authorization: {
+      kind: "human-approval",
+      actor: profile.email,
+      at: new Date().toISOString(),
+    },
+  });
+
+  // No daemon, no submission. Reporting this as success would be the worst
+  // possible lie: the person walks away believing they applied.
+  if (runId === null) back("/applications", { error: "no-daemon" });
+
+  revalidatePath("/applications");
+  back("/applications", { saved: "submitting" });
+}
+
+/** Decide, after reading the filled form, not to apply after all. */
+export async function rejectSubmissionAction(form: FormData): Promise<void> {
+  const profile = await getProfile(db);
+  if (!profile) {
+    back("/applications", { error: "Save your profile before reviewing applications." });
+  }
+
+  const applicationId = field(form, "applicationId");
+  if (applicationId === null) {
+    back("/applications", { error: "That change could not be applied." });
+  }
+
+  const result = await transitionApplication(
+    db,
+    profile.id,
+    applicationId,
+    ApplicationStatus.SKIPPED,
+    "You decided not to apply after reviewing the filled form.",
+  );
+  revalidatePath("/applications");
+  back("/applications", result.ok ? { saved: "rejected" } : { error: result.error });
 }
