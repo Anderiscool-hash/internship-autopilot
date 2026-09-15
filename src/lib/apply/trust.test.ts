@@ -191,32 +191,90 @@ describe("reliabilityForTrustLevel", () => {
 });
 
 describe("gatherTrustEvidence", () => {
-  it("counts only runs a human actually verified", async () => {
-    const runs = [
-      { verdict: "correct" },
-      { verdict: "correct" },
-      { verdict: "wrong" },
-      { verdict: null },
-      { verdict: null },
-    ];
-    const db = {
+  /** A Prisma stand-in holding just the two tables this function reads. */
+  function fakeDb(
+    runs: { verdict: string | null }[],
+    attempts: { outcome: string; verdict: string | null }[] = [],
+  ) {
+    return {
       shadowRun: {
+        // The real query filters verdict: { not: null } in SQL, so the fake
+        // does the same rather than handing back rows the database would not.
         findMany: async () => runs.filter((run) => run.verdict !== null),
       },
+      submissionAttempt: { findMany: async () => attempts },
     } as unknown as PrismaClient;
+  }
 
-    const result = await gatherTrustEvidence(db, "GREENHOUSE", false);
+  it("counts only runs a human actually verified", async () => {
+    const result = await gatherTrustEvidence(
+      fakeDb([
+        { verdict: "correct" },
+        { verdict: "correct" },
+        { verdict: "wrong" },
+        { verdict: null },
+        { verdict: null },
+      ]),
+      "GREENHOUSE",
+      false,
+    );
+
     expect(result.verifiedRuns).toBe(3);
     expect(result.correctRuns).toBe(2);
     expect(result.hasAdapter).toBe(true);
   });
 
   it("reports no adapter for an ATS the registry does not cover", async () => {
-    const db = {
-      shadowRun: { findMany: async () => [] },
-    } as unknown as PrismaClient;
-
-    const result = await gatherTrustEvidence(db, "WORKDAY", false);
+    const result = await gatherTrustEvidence(fakeDb([]), "WORKDAY", false);
     expect(result.hasAdapter).toBe(false);
+  });
+
+  it("counts only attempts that actually landed as confirmed submissions", async () => {
+    // "unconfirmed" is the outcome for "the POST went out and nothing confirmed
+    // it". Counting it as a success here would inflate the very evidence that
+    // unlocks auto-submit, which is the one number that must not be generous.
+    const result = await gatherTrustEvidence(
+      fakeDb(
+        [],
+        [
+          { outcome: "submitted", verdict: null },
+          { outcome: "submitted", verdict: "correct" },
+          { outcome: "unconfirmed", verdict: null },
+          { outcome: "refused", verdict: null },
+          { outcome: "error", verdict: null },
+        ],
+      ),
+      "GREENHOUSE",
+      false,
+    );
+
+    expect(result.confirmedSubmissions).toBe(2);
+  });
+
+  it("counts a submission a human judged wrong, whatever its outcome said", async () => {
+    // The adapter can believe it succeeded and still have sent the wrong
+    // thing. A human saying so is what blocks level 4, so it is read from the
+    // verdict rather than from the outcome.
+    const result = await gatherTrustEvidence(
+      fakeDb(
+        [],
+        [
+          { outcome: "submitted", verdict: "wrong" },
+          { outcome: "submitted", verdict: "correct" },
+          { outcome: "unconfirmed", verdict: "wrong" },
+        ],
+      ),
+      "GREENHOUSE",
+      false,
+    );
+
+    expect(result.wrongSubmissions).toBe(2);
+  });
+
+  it("passes the opt-in through untouched, since evidence must never set it", async () => {
+    const off = await gatherTrustEvidence(fakeDb([]), "GREENHOUSE", false);
+    const on = await gatherTrustEvidence(fakeDb([]), "GREENHOUSE", true);
+    expect(off.autoSubmitOptIn).toBe(false);
+    expect(on.autoSubmitOptIn).toBe(true);
   });
 });

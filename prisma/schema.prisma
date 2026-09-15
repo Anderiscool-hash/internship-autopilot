@@ -243,6 +243,7 @@ model Candidate {
   preferences       CandidatePreferences?
   applications      Application[]
   shadowRuns        ShadowRun[]
+  submissionAttempts SubmissionAttempt[]
   documents         CandidateDocument[]
 }
 
@@ -629,6 +630,7 @@ model Job {
 
   applications Application[]
   shadowRuns   ShadowRun[]
+  submissionAttempts SubmissionAttempt[]
 
   // Extra dedupe safety net beyond the fingerprint above (spec §8 also
   // lists "ATS source ID" + "Company" as dedupe signals on their own) —
@@ -721,6 +723,22 @@ model Application {
   /// Populated when status = FAILED, so a human (or a retry job) can see
   /// why without having to dig through EventLog.
   failureReason String?
+
+  /// Worker lease. Set while a worker holds this row, cleared when it lets go.
+  /// A restart deliberately leaves a stale lease behind: a row locked by a dead
+  /// worker is a row whose fate is unknown, and it should be looked at rather
+  /// than silently retried into a second submission.
+  lockedAt DateTime?
+  lockedBy String?
+
+  /// How many times a worker has picked this row up. Not the same as how many
+  /// times it was submitted, which is SubmissionAttempt's business.
+  attemptCount Int @default(0)
+
+  /// Earliest a worker may try again after a recoverable failure.
+  nextAttemptAt DateTime?
+
+  submissionAttempts SubmissionAttempt[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -847,6 +865,74 @@ model ShadowRun {
   createdAt DateTime @default(now())
 
   @@index([atsType, verdict])
+}
+
+// ----------------------------------------------------------------------------
+// SUBMISSION ATTEMPTS (spec §21-23)
+// ----------------------------------------------------------------------------
+
+/// One attempt to actually send an application.
+///
+/// Deliberately not an extension of ShadowRun. A shadow run is by definition a
+/// run that did NOT submit; overloading it would make "how many applications
+/// did we actually send" an unanswerable question, and that is the one question
+/// this table exists to answer.
+model SubmissionAttempt {
+  id String @id @default(cuid())
+
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  jobId String
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  candidateId String
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  url       String
+  atsType   AtsType
+  adapterId String
+
+  /// Who authorized this, and when. Never a boolean defaulting to true — an
+  /// authorization has to be something somebody produced, attributable later.
+  authorizationKind  String
+  authorizationActor String
+  authorizedAt       DateTime
+
+  /// The trust level at the moment of the attempt, and the confidence score.
+  trustLevel Int
+  confidence Int?
+
+  /// Every gate's name, pass/fail and detail, as evaluated immediately before
+  /// the guard was opened. Stored whole so a refusal can be explained months
+  /// later without re-deriving it.
+  gates Json
+
+  /// The first gate that failed, when outcome is "refused".
+  refusedGate String?
+
+  /// Every request that passed through the opened window, verbatim.
+  requests String[]
+
+  /// "submitted" | "refused" | "unconfirmed" | "error".
+  /// "unconfirmed" means the POST went out and nothing confirmed it — kept
+  /// distinct from "submitted" because the trust ladder counts these.
+  outcome      String
+  adapterError String?
+
+  screenshotPath String?
+
+  /// "correct" | "wrong", once a human has checked. Null until then — same
+  /// rule as ShadowRun: an unverified attempt is not evidence of anything.
+  verdict     String?
+  verdictNote String?
+  verifiedAt  DateTime?
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@index([applicationId])
+  @@index([atsType, outcome])
 }
 
 // ----------------------------------------------------------------------------

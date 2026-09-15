@@ -131,11 +131,10 @@ export async function gatherTrustEvidence(
     select: { verdict: true },
   });
 
-  // TASK 5: restore once the SubmissionAttempt model exists.
-  // const attempts = await db.submissionAttempt.findMany({
-  //   where: { atsType },
-  //   select: { outcome: true, verdict: true },
-  // });
+  const attempts = await db.submissionAttempt.findMany({
+    where: { atsType },
+    select: { outcome: true, verdict: true },
+  });
 
   return {
     hasAdapter: adapterFor(atsType).id !== "generic",
@@ -143,9 +142,8 @@ export async function gatherTrustEvidence(
     // Anything that is not exactly "correct" is not a pass. The column is an
     // unconstrained String, so this must not be written as `!== "wrong"`.
     correctRuns: runs.filter((run) => run.verdict === "correct").length,
-    // TASK 5: restore
-    confirmedSubmissions: 0,
-    wrongSubmissions: 0,
+    confirmedSubmissions: attempts.filter((a) => a.outcome === "submitted").length,
+    wrongSubmissions: attempts.filter((a) => a.verdict === "wrong").length,
     autoSubmitOptIn,
   };
 }
