@@ -22,7 +22,7 @@ import { senderDomainFor } from "../email/detect-field";
 import { conceptOf } from "../answers/concepts";
 import { applicationUrlFor } from "./application-url";
 import { worthStoring } from "./ask-plan";
-import { runShadowApply, type ShadowRunResult } from "./shadow";
+import { runShadowApply, type FilledHandle, type ShadowRunResult } from "./shadow";
 import type { AnswerEntry } from "../answers/match";
 
 /** Where screenshots go. */
@@ -60,6 +60,8 @@ export interface RunApplicationOptions {
   keepOpen?: boolean;
   /** Fill it, then lift the guard and hand the window over. */
   handoff?: boolean;
+  /** Called once filling is done, with the page still live. See shadow.ts. */
+  onFilled?: (handle: FilledHandle) => Promise<void>;
   /** Ask for the fields nothing could fill. Defaults on when a human is watching. */
   ask?: boolean;
   /** Read an emailed verification code from the configured mailbox. */
@@ -159,6 +161,7 @@ export async function runApplication(
     screenshotPath,
     keepOpen: options.keepOpen,
     handoff: options.handoff,
+    onFilled: options.onFilled,
     browser: options.browser,
 
     // Only restore a session that exists — Playwright throws on a missing file.

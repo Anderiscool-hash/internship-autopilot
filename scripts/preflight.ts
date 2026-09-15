@@ -31,11 +31,8 @@ import {
   gatherTrustEvidence,
   reliabilityForTrustLevel,
 } from "../src/lib/apply/trust";
-import {
-  decideAutoApply,
-  readAtsModes,
-  DEFAULT_RULES,
-} from "../src/lib/autoapply/rules";
+import { decideAutoApply } from "../src/lib/autoapply/rules";
+import { loadAutoApplyRules } from "../src/lib/autoapply/load-rules";
 
 const TICK = "yes";
 const CROSS = "NO";
@@ -216,12 +213,7 @@ async function main(): Promise<void> {
 
   // --- what the auto-apply rules would say -------------------------------
 
-  const prefs = await db.candidatePreferences.findUnique({
-    where: { candidateId: profile.id },
-  });
-  const rules = prefs
-    ? { ...prefs, atsModes: readAtsModes(prefs.atsAutoApplyModes) }
-    : DEFAULT_RULES;
+  const rules = await loadAutoApplyRules(db, profile.id);
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
