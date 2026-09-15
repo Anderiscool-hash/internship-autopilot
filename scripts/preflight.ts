@@ -27,6 +27,11 @@ import { applicationUrlFor } from "../src/lib/apply/application-url";
 import { launchBrowser, readApplicationForm } from "../src/lib/apply/read-form";
 import { scoreConfidence, type ParsedField } from "../src/lib/apply/confidence";
 import {
+  computeTrustLevel,
+  gatherTrustEvidence,
+  reliabilityForTrustLevel,
+} from "../src/lib/apply/trust";
+import {
   decideAutoApply,
   readAtsModes,
   DEFAULT_RULES,
@@ -182,10 +187,11 @@ async function main(): Promise<void> {
   line("Cover letter upload?", form.coverLetterRequired ? "Yes" : "No");
 
   // Documents are Phase 4, so readiness is honestly false rather than assumed.
+  const evidence = await gatherTrustEvidence(db, job.atsType, false);
   const confidence = scoreConfidence(
     { ...form, fields },
     { resumeReady: false, coverLetterReady: false },
-    job.atsType,
+    reliabilityForTrustLevel(computeTrustLevel(evidence)),
   );
 
   console.log("");

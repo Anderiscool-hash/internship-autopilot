@@ -85,21 +85,6 @@ export interface ConfidenceResult {
   blockers: string[];
 }
 
-/**
- * How reliable submission is on this ATS (spec §17's last 5%, and §21's
- * adapter trust levels).
- *
- * These are judgments about adapters, not measurements — and until an apply
- * worker exists and has actually submitted anything, they cannot be anything
- * else. Written down here so they are visible and arguable rather than
- * buried in a score.
- */
-export const SUBMISSION_RELIABILITY: Record<string, number> = {
-  GREENHOUSE: 0.9,
-  LEVER: 0.8,
-  ASHBY: 0.7,
-};
-
 /** Fraction of a list that satisfies a predicate; 1 for an empty list. */
 function fraction(total: number, satisfied: number): number {
   return total === 0 ? 1 : satisfied / total;
@@ -116,7 +101,14 @@ function fraction(total: number, satisfied: number): number {
 export function scoreConfidence(
   form: ParsedForm,
   materials: MaterialsState,
-  atsType: string,
+  /**
+   * How reliable submission is on this ATS, 0-1.
+   *
+   * Passed in rather than looked up, so this function stays pure and
+   * synchronous while the number behind it comes from measured trust
+   * (see trust.ts: reliabilityForTrustLevel).
+   */
+  reliability: number,
 ): ConfidenceResult {
   const unanswered = form.fields
     .filter((field) => field.required && !field.answered && field.kind !== "file")
@@ -178,11 +170,11 @@ export function scoreConfidence(
     },
     {
       name: "submission",
-      score: SUBMISSION_RELIABILITY[atsType] ?? 0,
+      score: reliability,
       detail:
-        SUBMISSION_RELIABILITY[atsType] === undefined
-          ? `No apply adapter exists for ${atsType}.`
-          : `${atsType} adapter reliability.`,
+        reliability === 0
+          ? "No apply adapter exists for this ATS."
+          : `Adapter reliability ${(reliability * 100).toFixed(0)}%.`,
     },
   ];
 
@@ -216,4 +208,30 @@ function documentsDetail(form: ParsedForm, materials: MaterialsState): string {
     );
   }
   return parts.join(", ") + ".";
+}
+
+/**
+ * Turn a finished run's field outcomes into the `answered` flags the
+ * confidence score wants.
+ *
+ * Preflight has to predict whether a field can be filled. After a run there is
+ * nothing to predict: the run either resolved the field or it did not. This is
+ * the better input, and it is why the submit gate scores confidence from the
+ * run rather than carrying preflight's guess forward.
+ */
+export function answeredFromOutcomes(
+  fields: { label: string; kind: ParsedField["kind"]; required: boolean }[],
+  outcomes: { label: string; status: string }[],
+): ParsedField[] {
+  const RESOLVED = new Set(["filled", "chosen", "attached", "answered"]);
+  const resolved = new Set(
+    outcomes.filter((outcome) => RESOLVED.has(outcome.status)).map((o) => o.label),
+  );
+
+  return fields.map((field) => ({
+    label: field.label,
+    kind: field.kind,
+    required: field.required,
+    answered: resolved.has(field.label),
+  }));
 }
