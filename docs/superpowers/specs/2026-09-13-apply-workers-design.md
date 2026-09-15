@@ -1,7 +1,7 @@
 # Apply Workers — Design (spec §20–23)
 
 **Date:** 2026-09-13
-**Status:** Approved in brainstorming; not yet implemented.
+**Status:** Implemented 2026-09-15. Plan: `docs/superpowers/plans/2026-09-15-apply-workers.md`.
 **Covers:** spec §21 (adapter trust levels), §22 (Playwright application workers),
 and the unreached tail of §23 (the state machine's `APPLYING` onward).
 
@@ -242,11 +242,86 @@ Two rules, both load-bearing:
 
 ---
 
+## Where the implementation departed from this design
+
+Recorded so the two documents do not quietly disagree. Everything above that is
+not listed here shipped as written.
+
+**`submitButton` became `submitButtons`.** The interface in §2 above says
+`submitButton(page): Locator | null`; the code has
+`submitButtons(page): Promise<Locator[]>`. Gate 6 has to tell "none" from
+"several", and a nullable single value collapses the two into one answer. They
+mean the same thing operationally — the page is not what the adapter thinks it
+is — but they are different bugs, and the attempt row should say which.
+
+**The lift is a variable, not an `unroute`.** "The lift" above describes
+opening and re-arming the guard. What exists is a `submitWindow` variable
+consulted by a route handler that is installed once and never removed, modelled
+on the `uploadWindow` exception directly above it in `shadow.ts`. Re-arming is
+then automatic: there is nothing to remember to put back. Handoff's one-way
+`context.unroute` was the other pattern available and was not safe to copy —
+it never re-arms, which is the exact failure this design exists to avoid. The
+window is also closed in a `finally`, so a throw inside the submit body cannot
+leave it open.
+
+**A trust-level check sits ahead of the seven gates.** `submitFilledApplication`
+refuses outright, before evaluating anything else, when either the adapter's
+`maxTrustLevel` or the ATS's computed level is below 3. An adapter that cannot
+recognise its own success page must not click even once: afterwards we could
+not say whether an application went out, and "we think we applied" is worse
+than not applying. It is reported as its own gate name, `trust-level`.
+
+**`scoreConfidence` takes a reliability number, not an `atsType`.** §3 says the
+ladder "replaces the hardcoded `SUBMISSION_RELIABILITY` map". It does —
+`SUBMISSION_RELIABILITY` is gone — but the replacement is
+`reliabilityForTrustLevel(level)` in `trust.ts`, and the caller passes the
+resulting number in. `scoreConfidence` stays pure and synchronous while the
+number behind it is measured from verified runs.
+
+**`FilledHandle` carries the parsed form.** Not in the design at all, and
+load-bearing. Rebuilding a `ParsedForm` from the fill outcomes would put every
+field in the "standard" bucket and leave "legal" and "custom" empty — and
+`fraction()` returns 1 for an empty bucket, so an unasked legal question would
+have read as a perfect score on the very number that gates a submission.
+
+**`Application` gained lease and attempt columns.** `lockedAt`, `lockedBy`,
+`attemptCount`, `nextAttemptAt`. The daemon's queue is in memory and loses
+accepted work on restart, which is tolerable for a shadow run and not for a
+submission. A row locked by a worker that died stays locked on purpose: its
+fate is unknown, and it should be looked at rather than silently retried into a
+second submission.
+
+**The worker does not call `decideAutoApply`.** §4 says it reads it. It reads
+the same rules through `loadAutoApplyRules` and uses two of them directly —
+`modeFor` for the level-4 opt-in and `minimumApplicationConfidence` for gate 5.
+`decideAutoApply` answers "should this be queued at all", which is preflight's
+question and remains preflight's caller. A worker handed an application id has
+already been told to run it.
+
+**`loadAutoApplyRules` is new.** The `CandidatePreferences → AutoApplyRules`
+mapping had been written out twice, in preflight and in the settings page, and
+the copies had drifted — one spread `atsModes` in and one did not. Harmless
+while nothing acted on the rules; a dropped `atsModes` with a worker running
+means applying on an ATS somebody had switched off.
+
+### The trust thresholds are still an assumption
+
+The warning in §3 was not resolved. The numbers in `TRUST_THRESHOLDS`
+(`src/lib/apply/trust.ts`) are the implementer's, not the user's, and nobody
+whose applications are at stake has confirmed them. They are deliberately in
+one constant so that changing them touches that constant and its table-driven
+test and nothing else. Read them as a proposal that happens to be running.
+
+---
+
 ## Out of scope
+
+Unchanged by the implementation — all of these are still out:
 
 - Workday, SmartRecruiters, iCIMS (§22 lists them; no jobs from them in the
   database today, and Workday's multi-page wizard with mandatory account
-  creation is its own project).
+  creation is its own project). They resolve to the generic adapter, which is
+  capped at trust level 2 and cannot submit.
 - Resume and cover-letter builders (§14, §15) — the worker consumes whatever
   documents exist; it does not generate them.
 - Gmail status tracking (§25) and the contact finder (§26).
