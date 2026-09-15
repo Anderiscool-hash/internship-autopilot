@@ -263,3 +263,32 @@ describe("onFilled is a seam that opens only after the run is otherwise done", (
     60_000,
   );
 });
+
+describe("the handle carries the form as parsed, not as reconstructed", () => {
+  it(
+    "hands over real field kinds, so confidence cannot be scored on fabricated buckets",
+    async () => {
+      // Rebuilding a ParsedForm from the fill outcomes would put every field in
+      // the "standard" bucket and leave "legal" and "custom" empty -- and
+      // scoreConfidence's fraction() returns 1 for an empty bucket, so an
+      // unasked legal question would read as a perfect score. The real parse is
+      // carried across precisely so that cannot happen.
+      let seen: { label: string; kind: string }[] = [];
+      let unrecognized = -1;
+
+      await run(async (handle) => {
+        seen = handle.form.fields.map((field) => ({
+          label: field.label,
+          kind: field.kind,
+        }));
+        unrecognized = handle.form.unrecognizedFields;
+      });
+
+      expect(seen.length).toBeGreaterThan(0);
+      // Both fixture fields are classifiable, so neither may arrive unknown.
+      expect(seen.every((field) => field.kind !== "unknown")).toBe(true);
+      expect(unrecognized).toBe(0);
+    },
+    60_000,
+  );
+});

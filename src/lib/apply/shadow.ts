@@ -69,7 +69,7 @@ import {
 } from "./ask-overlay";
 import { questionsToAsk } from "./ask-plan";
 import { computeBlockingGaps } from "./blocking-gaps";
-import { readOpenForm } from "./read-form";
+import { readOpenForm, type ReadFormResult } from "./read-form";
 import type { FieldOutcome } from "./shadow-types";
 
 export type { FieldOutcome } from "./shadow-types";
@@ -137,6 +137,18 @@ export interface SubmitWindowResult<T> {
 export interface FilledHandle {
   page: Page;
   result: ShadowRunResult;
+
+  /**
+   * The form as the parser read it, before any answers were matched in.
+   *
+   * Carried because a caller scoring confidence needs the real field kinds.
+   * Rebuilding them from the fill outcomes would put every field in the
+   * "standard" bucket, leaving the legal and custom buckets empty — and
+   * scoreConfidence's fraction() returns 1 for an empty bucket, so an
+   * unanswered legal question would read as a perfect score. Silence is never
+   * a yes, least of all on the number that gates a submission.
+   */
+  form: ReadFormResult;
   openSubmitWindow<T>(
     ms: number,
     body: () => Promise<T>,
@@ -451,6 +463,7 @@ export async function runShadowApply(options: {
       await options.onFilled({
         page,
         result,
+        form,
         openSubmitWindow: async (ms, body) => {
           const from = submittedRequests.length;
           submitWindow = { until: Date.now() + ms };
