@@ -30,12 +30,24 @@
  * window focus, and the person answering the in-page questions can only look
  * at one form at a time anyway.
  * ─────────────────────────────────────────────────────────────────────────
+ * WHAT IT ANSWERS
+ *
+ *   GET  /health          is it alive, is the browser warm, how much has it done
+ *   POST /apply           a shadow run against a job id (see DaemonRunRequest)
+ *   POST /apply-run       the apply worker against an application id; answers
+ *                         with a runId rather than waiting for the run
+ *   GET  /run?id=<runId>  what that run did, or is still doing
+ *   POST /stop            shut down
+ *
+ * Every one of them needs the bearer token, /health included.
+ * ─────────────────────────────────────────────────────────────────────────
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { ApplicationStatus } from "@prisma/client";
 import { chromium, type Browser } from "playwright";
 import { db } from "../src/lib/db";
 import {
@@ -43,7 +55,12 @@ import {
   reportRun,
   runApplication,
 } from "../src/lib/apply/run-application";
-import { HANDSHAKE_PATH, type DaemonRunRequest } from "../src/lib/apply/daemon-client";
+import { runApplyWorker, type WorkerResult } from "../src/lib/apply/worker";
+import {
+  HANDSHAKE_PATH,
+  type ApplyRunRequest,
+  type DaemonRunRequest,
+} from "../src/lib/apply/daemon-client";
 
 const PORT = Number(process.env.APPLY_DAEMON_PORT ?? 4319);
 const TOKEN = randomBytes(24).toString("hex");
@@ -95,7 +112,11 @@ const server = createServer((request, response) => {
 async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
   if (!authorized(request)) return json(response, 401, { error: "unauthorized" });
 
-  if (request.method === "GET" && request.url === "/health") {
+  // Parsed rather than compared with ===, so /run?id=... can carry a param.
+  const parsed = new URL(request.url ?? "/", "http://127.0.0.1");
+  const path = parsed.pathname;
+
+  if (request.method === "GET" && path === "/health") {
     return json(response, 200, {
       ok: true,
       pid: process.pid,
@@ -105,7 +126,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     });
   }
 
-  if (request.method === "POST" && request.url === "/apply") {
+  if (request.method === "POST" && path === "/apply") {
     let body: DaemonRunRequest;
     try {
       body = JSON.parse(await readBody(request)) as DaemonRunRequest;
@@ -121,7 +142,67 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     return json(response, 202, { accepted: true });
   }
 
-  if (request.method === "POST" && request.url === "/stop") {
+  if (request.method === "POST" && path === "/apply-run") {
+    let body: ApplyRunRequest;
+    try {
+      body = JSON.parse(await readBody(request)) as ApplyRunRequest;
+    } catch {
+      return json(response, 400, { error: "bad json" });
+    }
+    if (!body.applicationId || !body.candidateId) {
+      return json(response, 400, { error: "applicationId and candidateId are required" });
+    }
+
+    const runId = randomBytes(8).toString("hex");
+    runs.set(runId, { state: "running" });
+
+    // The same queue the shadow runs use, not a second one: a submission and a
+    // shadow run both drive the one warm browser, and two of them at once would
+    // fight over the window focus.
+    queue = queue
+      .then(async () => {
+        const result = await runApplyWorker(db, {
+          applicationId: body.applicationId,
+          candidateId: body.candidateId,
+          // JSON has no Date type, so `at` arrives as a string and the worker
+          // writes it to the attempt row as-is. Rehydrate it here.
+          authorization: body.authorization
+            ? { ...body.authorization, at: new Date(body.authorization.at) }
+            : undefined,
+          // Passed unevaluated: the worker's early exits must not pay for a
+          // browser launch.
+          browser: warmBrowser,
+          log: (line: string) => console.log(line),
+        });
+        runs.set(runId, { state: "done", result });
+      })
+      .catch((error: unknown) => {
+        // A run that blew up must not sit at "running" forever — whoever is
+        // polling would wait on it until the daemon restarts.
+        runs.set(runId, {
+          state: "done",
+          result: {
+            applicationId: body.applicationId,
+            finalStatus: ApplicationStatus.FAILED,
+            attemptId: null,
+            reason: error instanceof Error ? error.message : String(error),
+          },
+        });
+      });
+
+    return json(response, 202, { accepted: true, runId });
+  }
+
+  if (request.method === "GET" && path === "/run") {
+    const entry = runs.get(parsed.searchParams.get("id") ?? "");
+    // Not a 404: an id the registry has never heard of is most likely one lost
+    // to a restart, which is a thing that happened rather than a mistake the
+    // caller made.
+    if (!entry) return json(response, 200, { state: "unknown" });
+    return json(response, 200, entry);
+  }
+
+  if (request.method === "POST" && path === "/stop") {
     json(response, 200, { stopping: true });
     setTimeout(() => void shutdown(0), 50);
     return;
@@ -129,6 +210,15 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 
   json(response, 404, { error: "not found" });
 }
+
+/**
+ * What each worker run did, by id.
+ *
+ * In memory and lost on restart, like the queue itself — but unlike a shadow
+ * run, a submission's result is also written to SubmissionAttempt, so this is a
+ * convenience for the UI rather than the record of what happened.
+ */
+const runs = new Map<string, { state: "running" | "done"; result?: WorkerResult }>();
 
 /** Run one application on the shared browser. */
 async function runOne(request: DaemonRunRequest): Promise<void> {

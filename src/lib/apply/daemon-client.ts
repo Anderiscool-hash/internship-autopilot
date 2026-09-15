@@ -30,6 +30,35 @@ export interface DaemonRunRequest {
   verify?: boolean;
 }
 
+/** What a caller asks the worker to do. */
+export interface ApplyRunRequest {
+  applicationId: string;
+  candidateId: string;
+  authorization?: {
+    kind: "human-approval" | "auto-submit-opt-in";
+    actor: string;
+    /** ISO 8601 — JSON has no Date, and the daemon rehydrates it. */
+    at: string;
+    note?: string;
+  };
+}
+
+/**
+ * Where a worker run has got to.
+ *
+ * "unknown" is not an error: the registry lives in the daemon's memory, so an
+ * id from before a restart is simply gone.
+ */
+export interface RunStatus {
+  state: "running" | "done" | "unknown";
+  result?: {
+    applicationId: string;
+    finalStatus: string;
+    attemptId: string | null;
+    reason: string;
+  };
+}
+
 /** Read the handshake, or null when no daemon has written one. */
 export function readHandshake(): DaemonHandshake | null {
   try {
@@ -81,5 +110,55 @@ export async function submitToDaemon(request: DaemonRunRequest): Promise<boolean
     return response.ok;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Ask the daemon to run the apply worker. The run id, or null when no daemon
+ * is up to take it.
+ *
+ * The daemon accepts and queues rather than running inline, so this returns as
+ * soon as the work is booked — follow it with applyRunStatus.
+ */
+export async function submitApplyRun(request: ApplyRunRequest): Promise<string | null> {
+  const handshake = readHandshake();
+  if (!handshake) return null;
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${handshake.port}/apply-run`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${handshake.token}`,
+      },
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) return null;
+
+    const body = (await response.json()) as { runId?: string };
+    return body.runId ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** What a run is doing, or null when no daemon is up to ask. */
+export async function applyRunStatus(id: string): Promise<RunStatus | null> {
+  const handshake = readHandshake();
+  if (!handshake) return null;
+
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${handshake.port}/run?id=${encodeURIComponent(id)}`,
+      {
+        headers: { authorization: `Bearer ${handshake.token}` },
+        signal: AbortSignal.timeout(1_500),
+      },
+    );
+    if (!response.ok) return null;
+    return (await response.json()) as RunStatus;
+  } catch {
+    return null;
   }
 }

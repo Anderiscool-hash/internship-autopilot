@@ -51,7 +51,17 @@ export interface ApplyWorkerParams {
    * absence is what keeps level 3 stopping.
    */
   authorization?: Authorization;
-  browser?: Browser;
+  /**
+   * How to get a warm browser, called only if a run actually reaches the
+   * filling stage.
+   *
+   * A provider rather than a Browser because the cheap exits above it — no
+   * such application, the posting closed, the row is not ours to take — must
+   * not cost a Chromium launch. Shadow mode launches headful, so an eagerly
+   * awaited browser also means a window opening in someone's face for a run
+   * that was never going to happen.
+   */
+  browser?: () => Promise<Browser>;
   log?: (line: string) => void;
 }
 
@@ -209,7 +219,7 @@ export async function runApplyWorker(
   try {
     const outcome = await runApplication(db, {
       jobId: job.id,
-      browser: params.browser,
+      browser: await params.browser?.(),
       persistSession: true,
       log,
 
