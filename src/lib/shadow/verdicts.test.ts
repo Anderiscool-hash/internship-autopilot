@@ -18,6 +18,7 @@ import { describe, it, expect } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import {
   atsStandings,
+  clearVerdict,
   nextUnverifiedRun,
   recordVerdict,
   verificationProgress,
@@ -106,6 +107,16 @@ function fakeDb(rows: FakeRun[]) {
         rows.filter((row) => matches(row, where)).length,
       update: async ({ where, data }: { where: { id: string }; data: Partial<FakeRun> }) => {
         updates.push({ id: where.id, data });
+        // The write is applied to the stored row as well as recorded, so a
+        // test can record a verdict and then ask the read functions what the
+        // queue looks like afterwards. Without this a round trip could only
+        // ever be checked against the writes it issued, which is the thing
+        // being tested rather than evidence about it.
+        const target = rows.find((row) => row.id === where.id);
+        if (target) {
+          Object.assign(target, data);
+          return target;
+        }
         return { ...run(where.id), ...data };
       },
     },
@@ -172,6 +183,75 @@ describe("recordVerdict", () => {
     );
 
     expect(updates).toHaveLength(0);
+  });
+});
+
+describe("clearVerdict", () => {
+  it("clears the verdict and the time it was checked", async () => {
+    const { db, updates } = fakeDb([
+      run("r1", { verdict: "wrong", verifiedAt: day(2) }),
+    ]);
+
+    await clearVerdict(db, "r1");
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.id).toBe("r1");
+    expect(updates[0]!.data.verdict).toBeNull();
+    expect(updates[0]!.data.verifiedAt).toBeNull();
+  });
+
+  it("keeps the note, because the note is what the misclick was about", async () => {
+    // The whole reason this function exists: someone writes up what went
+    // wrong, presses the wrong button, and undoes it. Throwing the note away
+    // there would make the undo cost more than the mistake did.
+    const stored = run("r1", {
+      verdict: "correct",
+      verdictNote: "the phone went in the zip field",
+      verifiedAt: day(2),
+    });
+    const { db, updates } = fakeDb([stored]);
+
+    await clearVerdict(db, "r1");
+
+    // Two halves of the same claim: the write never mentions the column, and
+    // the row still has the note afterwards.
+    expect(updates[0]!.data).not.toHaveProperty("verdictNote");
+    expect(stored.verdictNote).toBe("the phone went in the zip field");
+  });
+
+  it("writes nothing when the run is already unverified", async () => {
+    // A double-clicked Undo link lands here. It must be quiet, not an error
+    // and not a second write.
+    const { db, updates } = fakeDb([run("r1")]);
+
+    await clearVerdict(db, "r1");
+
+    expect(updates).toHaveLength(0);
+  });
+
+  it("throws a readable error when the run id does not exist", async () => {
+    const { db, updates } = fakeDb([run("r1", { verdict: "correct" })]);
+
+    await expect(clearVerdict(db, "nope")).rejects.toThrow("No shadow run with id nope.");
+
+    expect(updates).toHaveLength(0);
+  });
+
+  it("keeps a misclick out of the trust ladder: a cleared run counts as unverified again", async () => {
+    // The property that matters. A verdict nobody meant to give would
+    // otherwise sit in the evidence that promotes an adapter toward
+    // submitting real applications, and undoing it has to remove it from
+    // there and not merely from the screen.
+    const { db } = fakeDb([run("r1")]);
+
+    await recordVerdict(db, "r1", "correct", "clicked this by mistake");
+    expect(await verificationProgress(db)).toEqual({ total: 1, verified: 1, pending: 0 });
+
+    await clearVerdict(db, "r1");
+
+    expect(await verificationProgress(db)).toEqual({ total: 1, verified: 0, pending: 1 });
+    expect((await nextUnverifiedRun(db))?.id).toBe("r1");
+    expect((await atsStandings(db))[0]!.verified).toBe(0);
   });
 });
 

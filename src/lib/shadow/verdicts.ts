@@ -57,6 +57,8 @@ export interface ShadowRunRow {
   screenshotPath: string;
   outcomes: unknown;
   createdAt: Date;
+  /** A note kept from an undone verdict, so it is not retyped. Usually null. */
+  verdictNote: string | null;
 }
 
 const REVIEW_COLUMNS = {
@@ -73,6 +75,10 @@ const REVIEW_COLUMNS = {
   screenshotPath: true,
   outcomes: true,
   createdAt: true,
+  // An unverified run can still carry a note: clearVerdict withdraws the
+  // verdict but deliberately keeps what the reviewer wrote, so an undone
+  // misclick hands the note back rather than making them type it twice.
+  verdictNote: true,
 } as const;
 
 /**
@@ -111,6 +117,45 @@ export async function recordVerdict(
       // every reader would then have to check both.
       verdictNote: note?.trim() ? note.trim() : null,
       verifiedAt: new Date(),
+    },
+  });
+}
+
+/**
+ * Undo a verdict recorded by mistake, putting the run back in the queue.
+ *
+ * `verdictNote` is deliberately left alone. The realistic misclick is someone
+ * typing a careful note about what went wrong and then pressing the wrong
+ * button; wiping the note would punish exactly the case this function exists
+ * for, so it survives as a draft for the second attempt. Nothing in the
+ * codebase reads `verdictNote` — recordVerdict is its only other mention — so
+ * a note left sitting next to a null verdict misleads no reader and is counted
+ * by nothing.
+ */
+export async function clearVerdict(db: PrismaClient, runId: string): Promise<void> {
+  const existing = await db.shadowRun.findUnique({
+    where: { id: runId },
+    select: { id: true, verdict: true, verifiedAt: true },
+  });
+  if (!existing) {
+    throw new Error(`No shadow run with id ${runId}.`);
+  }
+
+  // Already unverified. Returning instead of writing means a double-clicked
+  // Undo link is harmless rather than an error, and spares the row a write
+  // that would change nothing but look like a real review action afterwards.
+  if (existing.verdict === null && existing.verifiedAt === null) {
+    return;
+  }
+
+  await db.shadowRun.update({
+    where: { id: runId },
+    data: {
+      verdict: null,
+      // Cleared together with the verdict on purpose: a verifiedAt without a
+      // verdict would read as "a human checked this" to anyone scanning the
+      // column, which is the one claim an undo is meant to withdraw.
+      verifiedAt: null,
     },
   });
 }

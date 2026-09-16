@@ -25,7 +25,7 @@ import {
 import { TRUST_THRESHOLDS } from "@/lib/apply/trust";
 import type { FieldOutcome } from "@/lib/apply/shadow-types";
 import { formatEnum, NOT_STATED } from "../jobs/format";
-import { recordVerdictAction } from "./actions";
+import { recordVerdictAction, undoVerdictAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -89,18 +89,56 @@ const LEVEL_3 = TRUST_THRESHOLDS.find((threshold) => threshold.level === 3);
 const LEVEL_3_RUNS = LEVEL_3 ? LEVEL_3.minVerifiedRuns : 10;
 const LEVEL_3_RATE = LEVEL_3 ? LEVEL_3.minCorrectRate : 0.9;
 
+/**
+ * The run whose verdict was just recorded, if the URL still names one.
+ *
+ * Queried here rather than through verdicts.ts because ShadowRunRow is the
+ * *unverified* view by design — it carries neither the verdict nor the job the
+ * run belongs to, and this banner is made of precisely those two things.
+ */
+async function justRecorded(runId: string | undefined) {
+  if (runId === undefined) return null;
+
+  return db.shadowRun.findFirst({
+    // Both halves matter. An id nobody recognises is a hand-edited or stale
+    // URL, and a run with no verdict has already been undone — in another tab,
+    // or by a reload of this very redirect. Neither is an error worth showing:
+    // nothing was lost either way, and the queue below is still the truth.
+    where: { id: runId, verdict: { not: null } },
+    select: {
+      id: true,
+      verdict: true,
+      job: { select: { title: true, company: { select: { name: true } } } },
+    },
+  });
+}
+
+/** What the banner needs, shaped by the query rather than restated by hand. */
+type RecordedRun = NonNullable<Awaited<ReturnType<typeof justRecorded>>>;
+
+
 export default async function ShadowRunsPage({ searchParams }: ReviewPageProps) {
   const params = await searchParams;
   const error = one(params, "error");
 
   const progress = await verificationProgress(db);
   const run = await nextUnverifiedRun(db);
+  const undone = await justRecorded(one(params, "undone"));
+  // Kept on the row itself: an undone verdict leaves its note behind, and
+  // nextUnverifiedRun already selects it.
+  const note = run?.verdictNote?.trim() ? run.verdictNote.trim() : null;
 
   return (
     <main className="page page-wide">
       <h1>Review shadow runs</h1>
 
       {error ? <div className="notice notice-error">{error}</div> : null}
+
+      {/* Above both branches, not just the queue: the verdict most likely to
+          need taking back is the last one, and recording it is what empties
+          the queue. A banner that only appeared beside a next run would
+          vanish at exactly the moment it was the only way back. */}
+      {undone ? <UndoBanner run={undone} /> : null}
 
       {run === null ? (
         <>
@@ -131,15 +169,61 @@ export default async function ShadowRunsPage({ searchParams }: ReviewPageProps) 
             {progress.verified} of {progress.total} verified · oldest first
           </p>
 
-          <RunReview run={run} />
+          <RunReview run={run} note={note} />
         </>
       )}
     </main>
   );
 }
 
+/**
+ * What was just recorded, and the one screen on which it can be taken back.
+ *
+ * The queue's whole rhythm is press a button, get the next run, which is also
+ * the rhythm in which a mis-tap happens and is gone. Nothing else in the app
+ * can edit a verdict, and a wrong one does not sit quietly: it is counted into
+ * the trust ladder that decides whether the bot may submit real applications.
+ */
+function UndoBanner({ run }: { run: RecordedRun }) {
+  // verdicts.ts counts an exact "correct" as a pass and treats everything else
+  // in that unconstrained column as a failure. Reading the word the same way
+  // means this banner can never describe a run more kindly than the ladder
+  // that is about to act on it.
+  const verdict = run.verdict === "correct" ? "Correct" : "Wrong";
+  // Company and title, because that is what the person remembers deciding
+  // about. The heading below identifies runs by ATS and date, which is the
+  // right key for a queue of forms and the wrong one for "did I just mean to
+  // do that" — two Greenhouse runs from the same day are indistinguishable.
+  const label = `${run.job.company.name} — ${run.job.title}`;
+
+  return (
+    // Plain .notice, not .notice-ok: green reads as "that was the right
+    // answer", and whether it was is exactly what the Undo beside it is
+    // asking. The verdict is spelled out in the sentence either way, so
+    // nothing here is carried by colour alone.
+    <div className="notice">
+      <p>
+        Recorded <strong>{verdict}</strong> on {label}.
+      </p>
+      <form action={undoVerdictAction}>
+        <input type="hidden" name="runId" value={run.id} />
+        <button
+          type="submit"
+          className="small-button"
+          // "Undo" is unambiguous next to the sentence and useless read out of
+          // context, which is how a screen reader user meets a list of
+          // controls. The name says which verdict on which run.
+          aria-label={`Undo the ${verdict} verdict on ${label}`}
+        >
+          Undo
+        </button>
+      </form>
+    </div>
+  );
+}
+
 /** Everything known about the run in hand, and the two buttons. */
-function RunReview({ run }: { run: ShadowRunRow }) {
+function RunReview({ run, note }: { run: ShadowRunRow; note: string | null }) {
   const outcomes = parseOutcomes(run.outcomes);
   const fromEmail = outcomes.filter((outcome) => outcome.source === "email");
   // fieldsTotal is its own column and survives whatever happened to the JSON,
@@ -311,6 +395,12 @@ function RunReview({ run }: { run: ShadowRunRow }) {
           <textarea
             name="note"
             rows={3}
+            // Non-empty only when this run has been here before: undoing a
+            // verdict keeps the note, so what someone wrote about this form
+            // is waiting for them when it comes back round. defaultValue and
+            // not value — the browser owns the box after it renders, and this
+            // page has no client JavaScript to hand it back.
+            defaultValue={note ?? undefined}
             placeholder="e.g. the phone number went into the postcode field"
           />
         </label>
