@@ -318,6 +318,46 @@ dl.facts dd {
   text-decoration: none;
 }
 
+/* The shadow-run screenshot, scrolling inside its own panel.
+
+   A full-page capture of an application form is around 7,000px tall. Flowed
+   normally it buries the verdict buttons several screens down, which is not a
+   small annoyance: it is the difference between a queue that gets used and one
+   that records nothing. Capping the panel keeps a run to roughly one screen
+   while the image inside stays full size, because reading the field values is
+   the entire task and a scaled-down form is unreadable. */
+.shot-panel {
+  max-height: 70vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.shot-panel img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* The verdict bar, pinned to the bottom of the window.
+
+   Capping the screenshot was not enough on its own: a 38-field run still runs
+   to a 2,000px table, so the buttons sat four screens down and the first real
+   session recorded nothing. Sticky rather than a shorter page because the
+   table is evidence too — it should stay long and readable, while the thing
+   you press stays where your eyes are. The tall section is the containing
+   block, so this rides the whole scroll. */
+.card-form {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+  padding-bottom: var(--space-3);
+}
+
 /* The review backlog count. Deliberately not a .badge: those are uppercase
    status words carrying a help cursor, and this is a live number inside a
    link. It earns its colour under the "colour is meaning" rule because an

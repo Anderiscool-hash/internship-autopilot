@@ -307,18 +307,19 @@ function RunReview({ run, note }: { run: ShadowRunRow; note: string | null }) {
       {/* The screenshot is the evidence. Everything else on this page is the
           bot's own account of what it did, and the question being asked is
           precisely whether that account matches the form. */}
-      <img
-        src={`/shadow-runs/${run.id}/screenshot`}
-        alt={`The ${formatEnum(run.atsType)} application form as the bot left it, with ${run.fieldsFilled} of ${run.fieldsTotal} fields filled in.`}
-        // globals.css has no img rule and one element does not earn one. These
-        // three keep a full-page capture inside the column and give it the same
-        // edge as every other framed block on the screen.
-        style={{
-          maxWidth: "100%",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-lg)",
-        }}
-      />
+      {/* The capture is full-page, and application forms are long: these run to
+          about 7,000 pixels, which at column width is five or six screens. Left
+          to flow, it pushed the verdict buttons so far down the page that a
+          reviewer scrolled past the point of giving up before reaching them —
+          the queue recorded no verdicts at all. So the screenshot scrolls
+          inside its own panel: one run stays one screen, the image keeps full
+          resolution for reading field values, and the buttons stay in sight. */}
+      <div className="shot-panel">
+        <img
+          src={`/shadow-runs/${run.id}/screenshot`}
+          alt={`The ${formatEnum(run.atsType)} application form as the bot left it, with ${run.fieldsFilled} of ${run.fieldsTotal} fields filled in.`}
+        />
+      </div>
 
       <h3>What went into the form</h3>
 
