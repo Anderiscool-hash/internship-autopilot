@@ -70,11 +70,27 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         How much authority the software has to apply on your behalf (spec §18).
       </p>
 
-      <div className="notice">
-        <strong>Nothing is submitted automatically yet.</strong> The Playwright
-        apply workers are Phase 5 and are not built. These rules are stored and
-        enforced by the decision engine, so they are ready — and safe to set
-        now, since the strictest setting is the default.
+      {/* This notice used to say the apply workers were "Phase 5 and not
+          built", which stopped being true on 2026-09-15 and left the page
+          reassuring people about software that now exists. A stale promise on
+          the screen that authorises sending applications is worse than no
+          promise, so it states what is actually holding submission back —
+          which is evidence, and is therefore temporary by design. */}
+      <div className="notice notice-warn">
+        <p>
+          <strong>These settings are live.</strong> The apply workers exist and
+          can submit applications. What stops them today is evidence, not code:
+          an ATS must reach trust level 3 before anything is sent, and that
+          takes verified shadow runs you have not recorded yet.
+        </p>
+        <p>
+          <strong>&ldquo;Auto&rdquo; is not inert.</strong> Setting an ATS to
+          Auto <em>is</em> the opt-in for unattended submission — the one human
+          decision that level 4 cannot make for itself. Choose{" "}
+          <strong>Review</strong> if you want to see each application before it
+          goes. See <a href="/shadow-runs">the review queue</a> for where each
+          ATS currently stands.
+        </p>
       </div>
 
       {saved ? <div className="notice notice-ok">Rules saved.</div> : null}
