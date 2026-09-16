@@ -44,8 +44,11 @@ backup*.json
 .shots/
 
 # Shadow-mode screenshots contain your filled-in personal details.
-shadow-runs/
-storage/
+# Leading slash anchors these to the repo root: unanchored, "shadow-runs/" also
+# matched src/app/shadow-runs/, which silently hid the review UI's own source
+# files from git.
+/shadow-runs/
+/storage/
 
 # UI audit screenshots. The profile page shows your name, email, phone and
 # home address, so these are exactly as sensitive as the shadow-run shots.

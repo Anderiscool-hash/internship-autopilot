@@ -318,6 +318,23 @@ dl.facts dd {
   text-decoration: none;
 }
 
+/* The review backlog count. Deliberately not a .badge: those are uppercase
+   status words carrying a help cursor, and this is a live number inside a
+   link. It earns its colour under the "colour is meaning" rule because an
+   unverified run is progress the trust ladder cannot count — a backlog is
+   real state awaiting the user, not decoration. */
+.site-nav .nav-count {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--space-1);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+}
+
 /* ============================================================================
    Buttons — three roles, and every button on the site is one of them.
    The previous version had four visually different button treatments that

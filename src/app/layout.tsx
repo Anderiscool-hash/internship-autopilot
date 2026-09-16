@@ -7,6 +7,8 @@ import {
   SESSION_COOKIE,
   verifySessionToken,
 } from "@/lib/auth/session";
+import { db } from "@/lib/db";
+import { verificationProgress } from "@/lib/shadow/verdicts";
 import { logoutAction } from "./login/actions";
 import "./globals.css";
 
@@ -31,6 +33,20 @@ export default async function RootLayout({
     !remote ||
     (password !== null &&
       (await verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value, password)));
+
+  // The only database work the root layout does, and it is wrapped because of
+  // where it sits: this layout renders on EVERY page, so an unhandled throw
+  // here takes down the whole app rather than one screen. A missing badge is a
+  // fair trade for that. Skipped entirely when signed out, where no nav renders.
+  let pendingRuns: number | null = null;
+  if (signedIn) {
+    try {
+      pendingRuns = (await verificationProgress(db)).pending;
+    } catch {
+      pendingRuns = null;
+    }
+  }
+
   return (
     <html lang="en">
       <body>
@@ -42,6 +58,17 @@ export default async function RootLayout({
           <a href="/jobs">Jobs</a>
           <a href="/companies">Companies</a>
           <a href="/applications">Applications</a>
+          <a href="/shadow-runs">
+            Review
+            {pendingRuns !== null && pendingRuns > 0 ? (
+              // The count is the whole reason this link carries a badge: an
+              // unverified run is worth nothing to the trust ladder, so a
+              // backlog is invisible progress loss unless something says so.
+              <span className="nav-count" aria-label={`${pendingRuns} runs awaiting review`}>
+                {pendingRuns}
+              </span>
+            ) : null}
+          </a>
           <a href="/answers">Answers</a>
           <a href="/profile">Profile</a>
           <a href="/analytics">Analytics</a>
