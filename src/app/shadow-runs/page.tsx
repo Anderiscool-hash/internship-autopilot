@@ -116,6 +116,33 @@ async function justRecorded(runId: string | undefined) {
 /** What the banner needs, shaped by the query rather than restated by hand. */
 type RecordedRun = NonNullable<Awaited<ReturnType<typeof justRecorded>>>;
 
+/**
+ * The employer and role this run was filling a form for.
+ *
+ * A second query rather than a wider ShadowRunRow, for the same reason the
+ * banner above runs its own: that type is the reviewer's view of a run, and
+ * widening it would push the job onto every caller of nextUnverifiedRun.
+ *
+ * It is worth the extra round trip because without it the heading reads
+ * "Greenhouse · 2026-09-11". Greenhouse is the ATS — the software the form is
+ * built in, shared by thousands of employers — so the one fact a reviewer
+ * needs to judge whether a value belongs in a field, namely who they were
+ * applying to and for what, existed only as pixels inside the screenshot.
+ */
+async function jobFor(runId: string) {
+  return db.shadowRun.findUnique({
+    where: { id: runId },
+    // Both hops are required relations in the schema, so neither is nullable
+    // once the run itself is found. The run can still be missing — it was read
+    // a moment ago and could have been deleted since — which is why the
+    // heading below still has something to fall back to.
+    select: { job: { select: { title: true, company: { select: { name: true } } } } },
+  });
+}
+
+/** The job as the heading needs it, shaped by the query rather than by hand. */
+type RunJob = NonNullable<Awaited<ReturnType<typeof jobFor>>>["job"];
+
 
 export default async function ShadowRunsPage({ searchParams }: ReviewPageProps) {
   const params = await searchParams;
@@ -169,7 +196,7 @@ export default async function ShadowRunsPage({ searchParams }: ReviewPageProps) 
             {progress.verified} of {progress.total} verified · oldest first
           </p>
 
-          <RunReview run={run} note={note} />
+          <RunReview run={run} note={note} job={(await jobFor(run.id))?.job ?? null} />
         </>
       )}
     </main>
@@ -223,7 +250,15 @@ function UndoBanner({ run }: { run: RecordedRun }) {
 }
 
 /** Everything known about the run in hand, and the two buttons. */
-function RunReview({ run, note }: { run: ShadowRunRow; note: string | null }) {
+function RunReview({
+  run,
+  note,
+  job,
+}: {
+  run: ShadowRunRow;
+  note: string | null;
+  job: RunJob | null;
+}) {
   const outcomes = parseOutcomes(run.outcomes);
   const fromEmail = outcomes.filter((outcome) => outcome.source === "email");
   // fieldsTotal is its own column and survives whatever happened to the JSON,
@@ -231,11 +266,20 @@ function RunReview({ run, note }: { run: ShadowRunRow; note: string | null }) {
   // per-field record could not be read back.
   const unreadable = Math.max(0, run.fieldsTotal - outcomes.length);
 
+  const ats = formatEnum(run.atsType);
+  const day = run.createdAt.toISOString().slice(0, 10);
+
   return (
-    <section>
-      <h2>
-        {formatEnum(run.atsType)} · {run.createdAt.toISOString().slice(0, 10)}
-      </h2>
+    <section className="shadow-review">
+      {/* Employer and role in the heading, ATS and date demoted beneath it.
+          The ATS still identifies the run — it is what the adapter is being
+          judged on, and two runs from one day are told apart by nothing else —
+          but it is the wrong thing to lead with: nobody applies to Greenhouse.
+          The fallback exists only for a run deleted between the two queries. */}
+      <h2>{job ? `${job.company.name} — ${job.title}` : `${ats} run`}</h2>
+      <p className="card-sub">
+        {ats} · {day}
+      </p>
 
       <p className="card-status">
         {run.blockingGaps.length > 0 ? (
@@ -313,11 +357,39 @@ function RunReview({ run, note }: { run: ShadowRunRow; note: string | null }) {
           reviewer scrolled past the point of giving up before reaching them —
           the queue recorded no verdicts at all. So the screenshot scrolls
           inside its own panel: one run stays one screen, the image keeps full
-          resolution for reading field values, and the buttons stay in sight. */}
-      <div className="shot-panel">
+          resolution for reading field values, and the buttons stay in sight.
+
+          But a 7,000px image in a 630px box is twelve screenfuls of scrolling
+          through a letterbox, and the capture opens on the job advert, so the
+          part on show is not even the form. The panel stays a preview; the
+          link below is how you actually read it. Same URL the img already
+          uses — the route serves the file, so the browser's own image viewer
+          gives zoom and full-window height for free, which is the whole ask. */}
+      <h3 id="shot-heading">The form as the bot left it</h3>
+      <p className="note">
+        The capture starts at the top of the advert, so scroll down inside the
+        panel to reach the form &mdash; or{" "}
+        <a
+          href={`/shadow-runs/${run.id}/screenshot`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          open the full-size screenshot in a new tab
+        </a>
+        , which is easier to read than a panel this size.
+      </p>
+      {/* tabindex and a name, because a scrollable box is a control: without
+          them the only way to move this image is a mouse wheel, and a screen
+          reader reaching it announces an unlabelled group of nothing. */}
+      <div
+        className="shot-panel"
+        tabIndex={0}
+        role="region"
+        aria-labelledby="shot-heading"
+      >
         <img
           src={`/shadow-runs/${run.id}/screenshot`}
-          alt={`The ${formatEnum(run.atsType)} application form as the bot left it, with ${run.fieldsFilled} of ${run.fieldsTotal} fields filled in.`}
+          alt={`The ${ats} application form as the bot left it, with ${run.fieldsFilled} of ${run.fieldsTotal} fields filled in.`}
         />
       </div>
 
@@ -329,7 +401,22 @@ function RunReview({ run, note }: { run: ShadowRunRow; note: string | null }) {
           screenshot and the counts above.
         </p>
       ) : (
-        <table className="checks">
+        <table className="checks outcomes">
+          {/* Column widths declared here rather than left to the browser. With
+              auto layout the field-label column sized itself to the longest
+              label on the form and ran to about 800px, which pushed Status,
+              Value and Source off the right of a 1440px window and made the
+              whole document scroll sideways — so the column that answers the
+              question, the value the bot typed, was the one nobody could see.
+              Fixed layout gives Value the remainder, which is the most of any
+              column, and long text wraps instead of widening its column. */}
+          <colgroup>
+            <col className="outcome-mark" />
+            <col className="outcome-field" />
+            <col className="outcome-status" />
+            <col className="outcome-value" />
+            <col className="outcome-source" />
+          </colgroup>
           <thead>
             <tr>
               <th scope="col" />
@@ -388,43 +475,53 @@ function RunReview({ run, note }: { run: ShadowRunRow; note: string | null }) {
         </p>
       ) : null}
 
-      <form className="card-form" action={recordVerdictAction}>
+      {/* Last in the section on purpose. This bar is sticky, and a sticky
+          element can only ever cover what comes after it in its containing
+          block — which is how the paragraph below used to spend its whole life
+          behind it. Nothing follows it now but the section's own padding. */}
+      <form className="card-form verdict-bar" action={recordVerdictAction}>
         <input type="hidden" name="runId" value={run.id} />
 
-        <label className="field">
-          <span>Note (optional)</span>
-          <textarea
-            name="note"
-            rows={3}
-            // Non-empty only when this run has been here before: undoing a
-            // verdict keeps the note, so what someone wrote about this form
-            // is waiting for them when it comes back round. defaultValue and
-            // not value — the browser owns the box after it renders, and this
-            // page has no client JavaScript to hand it back.
-            defaultValue={note ?? undefined}
-            placeholder="e.g. the phone number went into the postcode field"
-          />
-        </label>
+        {/* The definition of the word on the button, beside the button. It
+            used to sit at the foot of the page, roughly 3,400px below the
+            control it defines and under a 40-row table, which is no use to
+            anyone deciding right now what "Correct" is supposed to mean. */}
+        <p className="note verdict-meaning">
+          &ldquo;Correct&rdquo; means every value in the screenshot is in the right
+          field and says the right thing. A run that failed to fill something is
+          still correct if it recorded that honestly &mdash; what is being judged is
+          the bot&rsquo;s account of itself, not its luck with the page.
+        </p>
 
-        {/* One form, two submits: the note belongs to whichever verdict is
-            pressed, and picking a verdict from a dropdown and then pressing
-            Save is two decisions where there is only one. */}
-        <div className="form-actions">
-          <button type="submit" name="verdict" value="correct">
-            Correct
-          </button>
-          <button type="submit" name="verdict" value="wrong" className="secondary-button">
-            Wrong
-          </button>
+        <div className="verdict-controls">
+          <label className="field">
+            <span>Note (optional)</span>
+            <textarea
+              name="note"
+              rows={2}
+              // Non-empty only when this run has been here before: undoing a
+              // verdict keeps the note, so what someone wrote about this form
+              // is waiting for them when it comes back round. defaultValue and
+              // not value — the browser owns the box after it renders, and this
+              // page has no client JavaScript to hand it back.
+              defaultValue={note ?? undefined}
+              placeholder="e.g. the phone number went into the postcode field"
+            />
+          </label>
+
+          {/* One form, two submits: the note belongs to whichever verdict is
+              pressed, and picking a verdict from a dropdown and then pressing
+              Save is two decisions where there is only one. */}
+          <div className="form-actions">
+            <button type="submit" name="verdict" value="correct">
+              Correct
+            </button>
+            <button type="submit" name="verdict" value="wrong" className="secondary-button">
+              Wrong
+            </button>
+          </div>
         </div>
       </form>
-
-      <p className="note">
-        &ldquo;Correct&rdquo; means every value in the screenshot is in the right
-        field and says the right thing. A run that failed to fill something is
-        still correct if it recorded that honestly &mdash; what is being judged is
-        the bot&rsquo;s account of itself, not its luck with the page.
-      </p>
     </section>
   );
 }

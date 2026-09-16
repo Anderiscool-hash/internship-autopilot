@@ -95,6 +95,10 @@
   --danger-bg: #ffebe9;
 
   --shadow-raised: 0 4px 12px rgb(31 35 40 / 12%), 0 1px 2px rgb(31 35 40 / 8%);
+  /* Upward, for the one thing in the app that floats over content it is not
+     part of: the verdict bar. Without it the bar's edge reads as the page
+     having failed to paint rather than as something deliberately in front. */
+  --shadow-sticky: 0 -4px 12px rgb(31 35 40 / 10%);
 
   /* Table geometry, in one place so density is a single decision. */
   --row-height: 40px;
@@ -131,6 +135,7 @@
     /* Shadows barely read on a dark canvas; raised surfaces lift with a
        lighter background and a border instead. */
     --shadow-raised: 0 4px 12px rgb(1 4 9 / 60%);
+    --shadow-sticky: 0 -4px 12px rgb(1 4 9 / 70%);
   }
 }
 
@@ -316,46 +321,6 @@ dl.facts dd {
 .site-nav a:hover {
   color: var(--text-primary);
   text-decoration: none;
-}
-
-/* The shadow-run screenshot, scrolling inside its own panel.
-
-   A full-page capture of an application form is around 7,000px tall. Flowed
-   normally it buries the verdict buttons several screens down, which is not a
-   small annoyance: it is the difference between a queue that gets used and one
-   that records nothing. Capping the panel keeps a run to roughly one screen
-   while the image inside stays full size, because reading the field values is
-   the entire task and a scaled-down form is unreadable. */
-.shot-panel {
-  max-height: 70vh;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-}
-
-.shot-panel img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-/* The verdict bar, pinned to the bottom of the window.
-
-   Capping the screenshot was not enough on its own: a 38-field run still runs
-   to a 2,000px table, so the buttons sat four screens down and the first real
-   session recorded nothing. Sticky rather than a shorter page because the
-   table is evidence too — it should stay long and readable, while the thing
-   you press stays where your eyes are. The tall section is the containing
-   block, so this rides the whole scroll. */
-.card-form {
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
-  background: var(--bg);
-  border-top: 1px solid var(--border);
-  padding-top: var(--space-3);
-  padding-bottom: var(--space-3);
 }
 
 /* The review backlog count. Deliberately not a .badge: those are uppercase
@@ -1620,6 +1585,143 @@ ul.ledger li:first-child {
 }
 
 /* ============================================================================
+   Shadow-run review (spec §20)
+   ============================================================================
+
+   These live down here rather than up in Layout because .card-form is styled
+   twice — once as the sticky bar below, once as an ordinary stacked form on
+   the tracker cards — and the sticky rules have to win. Equal specificity, so
+   position in the file is the whole argument.
+   ============================================================================ */
+
+/* Clearance under the sticky bar.
+
+   Sticky keeps its place in the flow, so the bar can only ever cover what
+   comes after it inside this section. The form is the last element, which
+   already settles it; this padding is the belt to that pair of braces, and
+   gives the bar somewhere to sit at the bottom of the scroll that is not on
+   top of the final row of the table. */
+.shadow-review {
+  padding-bottom: var(--space-6);
+}
+
+/* The screenshot, scrolling inside its own panel.
+
+   A full-page capture of an application form is around 7,000px tall. Flowed
+   normally it buries the verdict buttons several screens down, which is not a
+   small annoyance: it is the difference between a queue that gets used and one
+   that records nothing. Capping the panel keeps a run to roughly one screen
+   while the image inside stays full size, because reading the field values is
+   the entire task and a scaled-down form is unreadable.
+
+   The panel is a preview, not the reading surface: twelve screenfuls through a
+   letterbox is nobody's idea of evidence, so the link above it opens the same
+   image full size in a tab. */
+.shot-panel {
+  max-height: 70vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+/* The panel takes focus so it can be scrolled from the keyboard, which means
+   it needs a ring — the app-wide one lists elements that are focusable by
+   nature and a div is not one of them. */
+.shot-panel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.shot-panel img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* The per-field table.
+
+   Fixed layout, against the default. Auto layout sizes a column to its widest
+   content, and the field-label column holds whatever the employer called its
+   questions — "Are you legally authorized to work in the United States?" and
+   the like — so it grew to about 800px and shoved Status, Value and Source off
+   the side of the window. The page then scrolled sideways, which is the one
+   direction nobody scrolls, so the value the bot actually typed was invisible.
+
+   Widths are set on the colgroup: everything but Value is capped, Value takes
+   the remainder, and the labels wrap onto as many lines as they need. */
+table.checks.outcomes {
+  table-layout: fixed;
+}
+
+.outcome-mark {
+  width: 2.5rem;
+}
+
+.outcome-field {
+  width: 26%;
+}
+
+.outcome-status {
+  width: 6rem;
+}
+
+.outcome-source {
+  width: 9rem;
+}
+
+table.checks.outcomes th,
+table.checks.outcomes td {
+  /* Both overrides matter. nowrap is what made the labels demand 800px in the
+     first place, and a fixed column does not grow for an unbroken string — a
+     long URL or file path would simply paint over its neighbour instead. */
+  white-space: normal;
+  overflow-wrap: anywhere;
+  /* Rows are now several lines tall and of unequal height; centred cells in a
+     row like that read as though they belong to different rows. */
+  vertical-align: top;
+}
+
+/* The verdict bar, pinned to the bottom of the window.
+
+   Capping the screenshot was not enough on its own: a 38-field run still runs
+   to a 2,000px table, so the buttons sat four screens down and the first real
+   session recorded nothing. Sticky rather than a shorter page because the
+   table is evidence too — it should stay long and readable, while the thing
+   you press stays where your eyes are. The tall section is the containing
+   block, so this rides the whole scroll. */
+.card-form.verdict-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  box-shadow: var(--shadow-sticky);
+  padding-top: var(--space-3);
+  padding-bottom: var(--space-3);
+  /* Two columns rather than the stacked .card-form default: what "Correct"
+     means now travels with the buttons, and stacked it would have added three
+     lines to the height of a bar that is already permanently over the page.
+     Side by side it costs nothing and is read before the button is pressed. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 24rem);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.verdict-meaning {
+  /* .note's bottom margin is for paragraphs in a flow; this is a grid cell. */
+  margin: 0;
+  max-width: 68ch;
+}
+
+.verdict-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* ============================================================================
    Narrow screens
    ============================================================================ */
 
@@ -1722,6 +1824,24 @@ ul.ledger li:first-child {
 
   dl.facts {
     gap: var(--space-3);
+  }
+
+  /* Side by side needs about 40rem to hold both halves; below that the note
+     column squeezes to a word a line. Stacked, and the explanation still
+     arrives before the buttons. */
+  .card-form.verdict-bar {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+
+  /* Give Value what the other columns can spare: at this width it is down to
+     a couple of words per line, and it is the column being read. */
+  .outcome-field {
+    width: 22%;
+  }
+
+  .outcome-source {
+    width: 6rem;
   }
 }
 
