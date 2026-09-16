@@ -40,10 +40,17 @@ export interface TrustThreshold {
 }
 
 /**
- * ASSUMPTION, not yet confirmed by the user. These are the one set of numbers
- * in this feature chosen by the author rather than by the person whose
- * applications are at stake. Deliberately in one place so that changing them is
- * this constant and the table-driven test, nothing else.
+ * Confirmed by the user 2026-09-16. These were the one set of numbers in this
+ * feature chosen by the author rather than by the person whose applications are
+ * at stake; they have now been reviewed and kept as they stand.
+ *
+ * The asymmetry that justifies them: at level 3 every application still stops
+ * for human approval, so this bar governs only how early the system may *ask*.
+ * Level 4 is the unattended one, which is why it carries a much heavier bar and
+ * a manual opt-in on top of it.
+ *
+ * Still deliberately in one place, so changing them is this constant and the
+ * table-driven test, nothing else.
  */
 export const TRUST_THRESHOLDS: TrustThreshold[] = [
   { level: 1, minVerifiedRuns: 0, minCorrectRate: 0, minConfirmedSubmissions: 0, requiresOptIn: false },

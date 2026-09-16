@@ -30,7 +30,9 @@
 Two values in the design were flagged as the user's to confirm and were **not** confirmed before this plan was written. Both are isolated so they are cheap to change:
 
 1. **Trust thresholds** — the proposed ladder is used. It lives in one exported constant, `TRUST_THRESHOLDS` in `src/lib/apply/trust.ts` (Task 1). Changing it is one edit plus the table-driven test.
+   **→ RESOLVED 2026-09-16: reviewed with the user and kept unchanged.** See "The trust thresholds, resolved" in the design doc. The comment above the constant in Task 1's code block still reads as the original assumption; the shipped file no longer does.
 2. **Review surface** — the `/applications` tracker's existing "Needs you" column is reused rather than a dedicated queue page (Task 11).
+   **→ Still unconfirmed.** It shipped this way and has not been objected to, which is not the same as being chosen. Revisit if the "Needs you" column gets crowded.
 
 Safe to defer because level 3 stops for human approval on *every* application, and level 4 cannot switch itself on.
 

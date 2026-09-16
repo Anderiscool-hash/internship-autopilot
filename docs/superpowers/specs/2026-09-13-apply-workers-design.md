@@ -161,10 +161,10 @@ exists for exactly this) plus `SubmissionAttempt` outcomes.
 | 3 | Review + submit | ≥10 verified runs, ≥90% correct |
 | 4 | Auto-submit | ≥25 verified runs, ≥95% correct, ≥10 confirmed submissions with zero `wrong` verdicts, **and** an explicit manual opt-in |
 
-> **ASSUMPTION — not yet confirmed by the user.** These thresholds are a
-> proposal. They are the one number set in this document chosen by the author
-> rather than by the person whose applications are at stake, and they should be
-> reviewed before implementation.
+> **CONFIRMED by the user 2026-09-16.** These were the one number set in this
+> document chosen by the author rather than by the person whose applications are
+> at stake. They have now been reviewed and kept unchanged, with the reasoning
+> recorded in "The trust thresholds, resolved" below.
 
 Two properties matter more than the specific numbers:
 
@@ -304,13 +304,27 @@ the copies had drifted — one spread `atsModes` in and one did not. Harmless
 while nothing acted on the rules; a dropped `atsModes` with a worker running
 means applying on an ATS somebody had switched off.
 
-### The trust thresholds are still an assumption
+### The trust thresholds, resolved
 
-The warning in §3 was not resolved. The numbers in `TRUST_THRESHOLDS`
-(`src/lib/apply/trust.ts`) are the implementer's, not the user's, and nobody
-whose applications are at stake has confirmed them. They are deliberately in
-one constant so that changing them touches that constant and its table-driven
-test and nothing else. Read them as a proposal that happens to be running.
+**Resolved 2026-09-16.** The warning in §3 stood through implementation; the
+numbers in `TRUST_THRESHOLDS` (`src/lib/apply/trust.ts`) were reviewed with the
+user and **kept exactly as proposed**. They are no longer an assumption.
+
+The argument that settled it is an asymmetry the design states but never draws
+out. At level 3 every application stops for human approval, so that threshold
+governs only how early the system is allowed to *ask* — the human is the actual
+gate, and a premature ask costs a glance, not an application. Level 4 is the
+one with nobody watching, which is why it carries both a much heavier evidence
+bar and a manual opt-in that no code path can set.
+
+The lifetime disqualification at level 4 — one `wrong` submission on an ATS and
+it is never eligible for auto-submit again — was also examined and deliberately
+kept. A rolling window was the alternative. It was rejected because a botched
+application burns an opportunity that usually cannot be reapplied for, and that
+is not a cost a percentage should be able to average away over time.
+
+They remain in one constant, so changing them touches that constant and its
+table-driven test and nothing else.
 
 ---
 
