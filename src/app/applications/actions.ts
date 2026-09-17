@@ -24,6 +24,11 @@ import {
   untrackApplication,
 } from "@/lib/applications/store";
 
+// Next.js dispatches server actions by action ID, not by route, so a POST to any
+// path the middleware skips can still reach the actions below. The check has to
+// live in each action itself; middleware cannot be the boundary for these.
+import { requireAccess } from "@/lib/auth/guard";
+
 /** Read one string field off a submitted form. */
 function field(form: FormData, name: string): string | null {
   const value = form.get(name);
@@ -48,6 +53,8 @@ function toStatus(value: string | null): ApplicationStatus | null {
 
 /** Put a job on the tracker from the job detail page. */
 export async function trackJobAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const jobId = field(form, "jobId");
   const status = toStatus(field(form, "status")) ?? ApplicationStatus.DISCOVERED;
   const rawFit = field(form, "fitScore");
@@ -68,6 +75,8 @@ export async function trackJobAction(form: FormData): Promise<void> {
 
 /** Move an application to another state (spec §23). */
 export async function transitionAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const applicationId = field(form, "applicationId");
   const to = toStatus(field(form, "to"));
   const returnTo = field(form, "returnTo") ?? "/applications";
@@ -85,6 +94,8 @@ export async function transitionAction(form: FormData): Promise<void> {
 
 /** Record an outcome: OA, interview, offer, rejection (spec §24). */
 export async function outcomeAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const applicationId = field(form, "applicationId");
   const raw = field(form, "outcome");
   const outcome =
@@ -104,6 +115,8 @@ export async function outcomeAction(form: FormData): Promise<void> {
 
 /** Save notes against an application. */
 export async function notesAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const applicationId = field(form, "applicationId");
   const notes = field(form, "notes");
 
@@ -119,6 +132,8 @@ export async function notesAction(form: FormData): Promise<void> {
 
 /** Remove a row from the tracker entirely. */
 export async function untrackAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const applicationId = field(form, "applicationId");
 
   const profile = await getProfile(db);
@@ -141,6 +156,8 @@ export async function untrackAction(form: FormData): Promise<void> {
  * cannot be attributed is not one.
  */
 export async function approveSubmissionAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const profile = await getProfile(db);
   if (!profile) {
     back("/applications", { error: "Save your profile before submitting applications." });
@@ -171,6 +188,8 @@ export async function approveSubmissionAction(form: FormData): Promise<void> {
 
 /** Decide, after reading the filled form, not to apply after all. */
 export async function rejectSubmissionAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const profile = await getProfile(db);
   if (!profile) {
     back("/applications", { error: "Save your profile before reviewing applications." });

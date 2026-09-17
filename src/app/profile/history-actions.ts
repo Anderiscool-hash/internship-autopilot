@@ -13,6 +13,11 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getProfile } from "@/lib/candidate/store";
 
+// Next.js dispatches server actions by action ID, not by route, so a POST to any
+// path the middleware skips can still reach the actions below. The check has to
+// live in each action itself; middleware cannot be the boundary for these.
+import { requireAccess } from "@/lib/auth/guard";
+
 function back(params: Record<string, string>): never {
   redirect(`/profile?${new URLSearchParams(params).toString()}`);
 }
@@ -39,6 +44,8 @@ function text(form: FormData, field: string): string {
 }
 
 export async function addWorkAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const profile = await getProfile(db);
   if (!profile) back({ errors: "Save your profile first." });
 
@@ -77,6 +84,8 @@ export async function addWorkAction(form: FormData): Promise<void> {
 }
 
 export async function deleteWorkAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const id = text(form, "id");
   if (id) await db.workExperience.delete({ where: { id } }).catch(() => undefined);
   revalidatePath("/profile");
@@ -84,6 +93,8 @@ export async function deleteWorkAction(form: FormData): Promise<void> {
 }
 
 export async function addEducationAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const profile = await getProfile(db);
   if (!profile) back({ errors: "Save your profile first." });
 
@@ -117,6 +128,8 @@ export async function addEducationAction(form: FormData): Promise<void> {
 }
 
 export async function deleteEducationAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const id = text(form, "id");
   if (id) await db.education.delete({ where: { id } }).catch(() => undefined);
   revalidatePath("/profile");

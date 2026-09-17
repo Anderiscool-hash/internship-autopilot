@@ -20,11 +20,18 @@ import { db } from "@/lib/db";
 import { getProfile } from "@/lib/candidate/store";
 import { fieldNameFor, QUESTIONNAIRE } from "@/lib/answers/questionnaire";
 
+// Next.js dispatches server actions by action ID, not by route, so a POST to any
+// path the middleware skips can still reach the actions below. The check has to
+// live in each action itself; middleware cannot be the boundary for these.
+import { requireAccess } from "@/lib/auth/guard";
+
 function back(params: Record<string, string>): never {
   redirect(`/answers?${new URLSearchParams(params).toString()}`);
 }
 
 export async function saveQuestionnaireAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const profile = await getProfile(db);
   if (!profile) back({ error: "Save your profile first — answers belong to you." });
 

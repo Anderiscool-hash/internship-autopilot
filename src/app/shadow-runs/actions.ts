@@ -21,6 +21,11 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { clearVerdict, recordVerdict, type Verdict } from "@/lib/shadow/verdicts";
 
+// Next.js dispatches server actions by action ID, not by route, so a POST to any
+// path the middleware skips can still reach the actions below. The check has to
+// live in each action itself; middleware cannot be the boundary for these.
+import { requireAccess } from "@/lib/auth/guard";
+
 /** Read one string field off a submitted form. */
 function field(form: FormData, name: string): string | null {
   const value = form.get(name);
@@ -51,6 +56,8 @@ function toVerdict(value: string | null): Verdict | null {
  * voting on an adapter's promotion on the candidate's behalf.
  */
 export async function recordVerdictAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const runId = field(form, "runId");
   const verdict = toVerdict(field(form, "verdict"));
 
@@ -83,6 +90,8 @@ export async function recordVerdictAction(form: FormData): Promise<void> {
  * counting against the adapter.
  */
 export async function undoVerdictAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const runId = field(form, "runId");
 
   // Refused rather than guessed at, for the same reason a missing verdict is.

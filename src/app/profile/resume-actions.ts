@@ -27,6 +27,11 @@ import { extractResumeText, ResumeReadError } from "@/lib/resume/extract-text";
 import { parseResumeFields } from "@/lib/resume/parse-fields";
 import type { Prisma } from "@prisma/client";
 
+// Next.js dispatches server actions by action ID, not by route, so a POST to any
+// path the middleware skips can still reach the actions below. The check has to
+// live in each action itself; middleware cannot be the boundary for these.
+import { requireAccess } from "@/lib/auth/guard";
+
 /** Bounce back to the profile with a message. */
 function back(params: Record<string, string>): never {
   redirect(`/profile?${new URLSearchParams(params).toString()}`);
@@ -45,6 +50,8 @@ function isRedirect(error: unknown): boolean {
 }
 
 export async function importResumeAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const file = form.get("resume");
   if (!(file instanceof File) || file.size === 0) {
     back({ errors: "Choose a resume file first." });

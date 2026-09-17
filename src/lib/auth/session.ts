@@ -21,7 +21,10 @@ export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
 export const SESSION_COOKIE = "ia_session";
 
-/** Hosts that are this machine talking to itself, or the local network. */
+/**
+ * Host strings that LOOK like this machine talking to itself, or the local
+ * network. "Look like" is the whole caveat — see `isLocalHost`.
+ */
 const LOCAL_HOST_PATTERNS = [
   /^localhost(:\d+)?$/i,
   /^127\.\d+\.\d+\.\d+(:\d+)?$/,
@@ -32,14 +35,25 @@ const LOCAL_HOST_PATTERNS = [
 ];
 
 /**
- * Is this request coming from the machine or the home network?
+ * Does this host string look local?
  *
- * Local requests skip the password entirely: needing to log in to your own
- * laptop to look at your own job list is friction with no security benefit,
- * and it would tempt the obvious workaround of disabling auth altogether.
+ * THIS IS NOT A SECURITY BOUNDARY. It must never gate access to anything.
  *
- * Anything else — a tunnel, a deployment, a domain — is remote and must
- * authenticate, whether or not a password has been configured.
+ * The only value ever passed here is the `Host:` header, which the client
+ * writes and can set to whatever it likes. `curl -H "Host: localhost"` against
+ * a public deployment returns true from this function. It used to be the first
+ * line of `decideAccess`, which meant one forged header read the owner's name,
+ * email, phone, work authorization and employment history off a deployed copy.
+ * On a cloud host it was worse than forgeable: 10.x, 172.16–31.x and 192.168.x
+ * ARE the internal network there, so ordinary pod-to-pod traffic matched
+ * without anyone forging anything at all.
+ *
+ * What it is still fair for is cosmetics and ergonomics — whether to offer a
+ * button that opens a browser window on the server's own screen, whether to
+ * show a "you are viewing this remotely" hint. Getting those wrong costs a
+ * misplaced button. If getting it wrong would expose data or run something
+ * privileged, use `requireAccess` (or `decideAccess`), which read an explicit
+ * environment flag that no request header can reach.
  */
 export function isLocalHost(host: string | null): boolean {
   if (!host) return false;
@@ -162,9 +176,61 @@ export function configuredPassword(
   return typeof password === "string" && password.length > 0 ? password : null;
 }
 
+/**
+ * The environment variable that turns the password off for a whole deployment.
+ *
+ * Named once, here, so that the flag cannot be half-spelled somewhere and
+ * silently read as "off" in one place and "on" in another.
+ */
+export const TRUST_LOCAL_REQUESTS_ENV = "TRUST_LOCAL_REQUESTS";
+
+/**
+ * Has the operator explicitly said "this copy is not reachable from anywhere,
+ * don't ask me for a password"?
+ *
+ * Only the exact string "1" counts. Not "true", not "yes", not "0", not the
+ * empty string — an empty or missing variable is the default, and the default
+ * is off. Deciding this from the environment rather than from the request is
+ * the entire point: a person with shell access to the server can set it, and
+ * nobody else can, no matter what headers they send.
+ *
+ * On your own laptop, put TRUST_LOCAL_REQUESTS=1 in .env and the app behaves
+ * exactly as it always has. Leave it out of the deployment's environment and
+ * every request there has to know the password.
+ */
+export function localRequestsTrusted(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return env[TRUST_LOCAL_REQUESTS_ENV] === "1";
+}
+
+/**
+ * The only paths that have to work before anyone can possibly be logged in:
+ * the login screen (a login behind a login is a redirect loop) and the health
+ * endpoint (a load balancer cannot type a password, and that route reveals
+ * nothing beyond up/down and a row count).
+ *
+ * Exact paths, not prefixes. The previous version of this lived in the
+ * middleware matcher as `(?!login|api/health)`, which is a PREFIX test, so a
+ * route added later called /login-callback or /api/health-debug would have
+ * been unauthenticated and nothing would have said so.
+ */
+const PUBLIC_PATHS = new Set(["/login", "/api/health"]);
+
+/** Is this exact path one of the few that is deliberately unauthenticated? */
+export function isPublicPath(pathname: string): boolean {
+  // Next normalises "/login/" to "/login" before we see it, but a path that
+  // arrives with a trailing slash should not accidentally become private.
+  const normalized =
+    pathname.length > 1 && pathname.endsWith("/")
+      ? pathname.slice(0, -1)
+      : pathname;
+  return PUBLIC_PATHS.has(normalized);
+}
+
 /** What a request is allowed to do. */
 export type AccessDecision =
-  /** Local request, or a valid session: let it through. */
+  /** Trusted-local deployment, or a valid session: let it through. */
   | { allow: true }
   /** Remote request with no password configured — refuse, and say why. */
   | { allow: false; reason: "not-configured" }
@@ -174,18 +240,28 @@ export type AccessDecision =
 /**
  * Decide whether a request may proceed.
  *
+ * Look at what is not a parameter: nothing the client sent except the cookie,
+ * and the cookie is only believed after its signature verifies. There is no
+ * host, no forwarded-for, no origin. The one way to get `{allow:true}` without
+ * a valid session is `trustLocal`, which the caller must read from the
+ * server's own environment via `localRequestsTrusted` — a value no header,
+ * query string or hostname can influence. That is the property this function
+ * exists to hold, and a parameter of the shape `host: string | null` is how it
+ * was lost the first time.
+ *
  * The "not-configured" case is deliberately a refusal rather than a warning.
- * A remote deployment with no password set is the exact accident this exists
- * to prevent, and a banner saying so on a page that already showed the data
- * would be pointless.
+ * A deployment with no password set and no explicit trust flag is the exact
+ * accident this exists to prevent, and a banner saying so on a page that
+ * already showed the data would be pointless.
  */
 export async function decideAccess(options: {
-  host: string | null;
+  /** From `localRequestsTrusted(process.env)`. Never from the request. */
+  trustLocal: boolean;
   token: string | undefined;
   password: string | null;
   now?: Date;
 }): Promise<AccessDecision> {
-  if (isLocalHost(options.host)) return { allow: true };
+  if (options.trustLocal) return { allow: true };
 
   if (options.password === null) return { allow: false, reason: "not-configured" };
 

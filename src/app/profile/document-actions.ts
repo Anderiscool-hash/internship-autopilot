@@ -16,6 +16,11 @@ import { getProfile } from "@/lib/candidate/store";
 import { DocumentError, deleteDocument, saveDocument } from "@/lib/documents/store";
 import type { DocumentKind } from "@/lib/documents/kind-for-field";
 
+// Next.js dispatches server actions by action ID, not by route, so a POST to any
+// path the middleware skips can still reach the actions below. The check has to
+// live in each action itself; middleware cannot be the boundary for these.
+import { requireAccess } from "@/lib/auth/guard";
+
 const KINDS = new Set<DocumentKind>(["RESUME", "COVER_LETTER", "TRANSCRIPT", "OTHER"]);
 
 function back(params: Record<string, string>): never {
@@ -23,6 +28,8 @@ function back(params: Record<string, string>): never {
 }
 
 export async function uploadDocumentAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const profile = await getProfile(db);
   if (!profile) back({ errors: "Save your profile first — a document belongs to a person." });
 
@@ -49,6 +56,8 @@ export async function uploadDocumentAction(form: FormData): Promise<void> {
 }
 
 export async function deleteDocumentAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const id = String(form.get("id") ?? "");
   if (id) await deleteDocument(db, id);
   revalidatePath("/profile");

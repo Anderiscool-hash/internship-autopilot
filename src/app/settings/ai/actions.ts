@@ -17,6 +17,11 @@ import { db } from "@/lib/db";
 import { getProvider, saveAiSettings, DEFAULT_LOCAL_BASE_URL } from "@/lib/ai";
 import { AiUnavailableError } from "@/lib/ai/types";
 
+// Next.js dispatches server actions by action ID, not by route, so a POST to any
+// path the middleware skips can still reach the actions below. The check has to
+// live in each action itself; middleware cannot be the boundary for these.
+import { requireAccess } from "@/lib/auth/guard";
+
 /** Read one trimmed field. */
 function field(form: FormData, name: string): string {
   const value = form.get(name);
@@ -35,6 +40,8 @@ function toProvider(value: string): AiProviderKind | null {
 }
 
 export async function saveAiSettingsAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const provider = toProvider(field(form, "provider"));
   if (provider === null) back({ error: "Pick a provider." });
 
@@ -59,6 +66,8 @@ export async function saveAiSettingsAction(form: FormData): Promise<void> {
  * proves nothing about whether the named model is installed and can answer.
  */
 export async function testAiSettingsAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const provider = toProvider(field(form, "provider"));
   if (provider === null) back({ error: "Pick a provider." });
 

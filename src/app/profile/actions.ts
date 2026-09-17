@@ -20,6 +20,11 @@ import {
   saveProfile,
 } from "@/lib/candidate/store";
 
+// Next.js dispatches server actions by action ID, not by route, so a POST to any
+// path the middleware skips can still reach the actions below. The check has to
+// live in each action itself; middleware cannot be the boundary for these.
+import { requireAccess } from "@/lib/auth/guard";
+
 /** Flatten FormData into the plain string record the parsers expect. */
 function toValues(form: FormData): FormValues {
   const values: FormValues = {};
@@ -37,6 +42,8 @@ function backTo(params: Record<string, string>): never {
 
 /** Save the identity/eligibility/preferences form. */
 export async function saveProfileAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const parsed = parseProfile(toValues(form));
 
   if (!parsed.ok) {
@@ -50,6 +57,8 @@ export async function saveProfileAction(form: FormData): Promise<void> {
 
 /** Add one Truth Ledger fact (spec §3). */
 export async function addFactAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const profile = await getProfile(db);
   if (!profile) {
     backTo({ errors: "Save your profile before adding facts to the ledger." });
@@ -67,6 +76,8 @@ export async function addFactAction(form: FormData): Promise<void> {
 
 /** Remove a fact from the ledger. */
 export async function deleteFactAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const factId = form.get("factId");
   const profile = await getProfile(db);
 

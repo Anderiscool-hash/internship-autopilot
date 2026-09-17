@@ -17,6 +17,11 @@ import { db } from "@/lib/db";
 import { dbAtsToCode } from "@/lib/jobs/persist";
 import { verifyBoard } from "@/lib/companies/verify";
 
+// Next.js dispatches server actions by action ID, not by route, so a POST to any
+// path the middleware skips can still reach the actions below. The check has to
+// live in each action itself; middleware cannot be the boundary for these.
+import { requireAccess } from "@/lib/auth/guard";
+
 function field(form: FormData, name: string): string {
   const value = form.get(name);
   return typeof value === "string" ? value.trim() : "";
@@ -32,6 +37,8 @@ function toAts(value: string): AtsType | null {
 
 /** Check a board and, if it is real, add the company. */
 export async function addCompanyAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const name = field(form, "name");
   const identifier = field(form, "identifier");
   const atsType = toAts(field(form, "atsType"));
@@ -68,6 +75,8 @@ export async function addCompanyAction(form: FormData): Promise<void> {
 
 /** Turn scanning on or off for one company. */
 export async function toggleCompanyAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const id = field(form, "id");
   const company = await db.company.findUnique({ where: { id } });
   if (!company) back({ error: "That company no longer exists." });
@@ -90,6 +99,8 @@ export async function toggleCompanyAction(form: FormData): Promise<void> {
 
 /** Re-check a board that is already in the registry. */
 export async function recheckCompanyAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const id = field(form, "id");
   const company = await db.company.findUnique({ where: { id } });
   if (!company) back({ error: "That company no longer exists." });
@@ -119,6 +130,8 @@ export async function recheckCompanyAction(form: FormData): Promise<void> {
  * escape hatch, not the interval itself.
  */
 export async function setPriorityAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const id = field(form, "id");
   const raw = field(form, "scanPriority");
   const priority = Number(raw);

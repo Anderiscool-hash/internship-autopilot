@@ -16,6 +16,11 @@ import { db } from "@/lib/db";
 import { getProfile } from "@/lib/candidate/store";
 import type { AutoApplyMode } from "@/lib/autoapply/rules";
 
+// Next.js dispatches server actions by action ID, not by route, so a POST to any
+// path the middleware skips can still reach the actions below. The check has to
+// live in each action itself; middleware cannot be the boundary for these.
+import { requireAccess } from "@/lib/auth/guard";
+
 /** Parse a whole number in a range, or return null with a message. */
 function wholeNumber(
   form: FormData,
@@ -36,6 +41,8 @@ function wholeNumber(
 }
 
 export async function saveRulesAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const profile = await getProfile(db);
   if (!profile) {
     redirect("/settings?error=" + encodeURIComponent("Fill in your profile first."));

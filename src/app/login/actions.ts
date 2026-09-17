@@ -37,9 +37,16 @@ export async function loginAction(form: FormData): Promise<void> {
   store.set(SESSION_COOKIE, await createSessionToken(password), {
     httpOnly: true,
     sameSite: "lax",
-    // Set only over HTTPS in production so the cookie cannot travel in clear
-    // text; left off locally, where there is no certificate.
-    secure: process.env.NODE_ENV === "production",
+    // Unconditional, not `NODE_ENV === "production"`. This cookie is the whole
+    // session, and the condition decided in clear text whether it could travel
+    // in clear text — behind a TLS-terminating proxy with NODE_ENV unset, that
+    // shipped it unprotected while looking configured. The failure mode of
+    // getting it wrong the other way is loud and local: over plain http the
+    // browser drops the cookie and the login visibly does not stick, which is
+    // a bug you find in a second, unlike a session quietly readable on the
+    // wire. Local development sets TRUST_LOCAL_REQUESTS=1 and never reaches
+    // this code path at all.
+    secure: true,
     maxAge: SESSION_TTL_SECONDS,
     path: "/",
   });

@@ -16,6 +16,11 @@ import { ImapFlow } from "imapflow";
 import { writeEnvVars } from "@/lib/email/env-file";
 import { inboxConfig } from "@/lib/email/inbox";
 
+// Next.js dispatches server actions by action ID, not by route, so a POST to any
+// path the middleware skips can still reach the actions below. The check has to
+// live in each action itself; middleware cannot be the boundary for these.
+import { requireAccess } from "@/lib/auth/guard";
+
 function back(params: Record<string, string>): never {
   redirect(`/settings/mailbox?${new URLSearchParams(params).toString()}`);
 }
@@ -25,6 +30,8 @@ function text(form: FormData, field: string): string {
 }
 
 export async function saveMailboxAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const host = text(form, "host");
   const user = text(form, "user");
   const port = text(form, "port");
@@ -74,6 +81,8 @@ export async function saveMailboxAction(form: FormData): Promise<void> {
  * finding out in the middle of an application.
  */
 export async function testMailboxAction(): Promise<void> {
+  await requireAccess();
+
   const config = inboxConfig();
   if (config === null) {
     back({ error: "Nothing is configured yet — save a server, address and password first." });

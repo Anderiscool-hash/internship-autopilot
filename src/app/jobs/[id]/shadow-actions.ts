@@ -15,21 +15,32 @@
 
 import { spawn } from "node:child_process";
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { getProfile } from "@/lib/candidate/store";
-import { isLocalHost } from "@/lib/auth/session";
+import { localRequestsTrusted } from "@/lib/auth/session";
 import { mailboxStatus } from "@/lib/email/env-file";
 import { daemonStatus, submitToDaemon } from "@/lib/apply/daemon-client";
 
+// Next.js dispatches server actions by action ID, not by route, so a POST to any
+// path the middleware skips can still reach the actions below. The check has to
+// live in each action itself; middleware cannot be the boundary for these.
+import { requireAccess } from "@/lib/auth/guard";
+
 export async function startShadowRunAction(form: FormData): Promise<void> {
+  await requireAccess();
+
   const jobId = form.get("jobId");
   if (typeof jobId !== "string" || jobId.length === 0) {
     redirect("/jobs");
   }
 
-  const host = (await headers()).get("host");
-  if (!isLocalHost(host)) {
+  // Decided by the server's own environment, never by the request. The
+  // `Host:` header this used to read is written by the client, so `curl -H
+  // "Host: localhost"` against a deployed copy spawned a real browser process
+  // on that host. `isLocalHost` says as much in its own doc comment: it is for
+  // cosmetics, not for gating something privileged, and spawning a detached
+  // process is as privileged as this app gets.
+  if (!localRequestsTrusted()) {
     // The window would open on the server, not on the viewer's screen.
     redirect(`/jobs/${jobId}?error=${encodeURIComponent(
       "Shadow mode opens a browser on the machine running this app, so it can only be started from that machine.",
