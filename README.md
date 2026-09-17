@@ -105,7 +105,11 @@ because a percentage from three applications reads as a fact and is not one.
 
 `/settings` holds the auto-apply rules (spec §18) — fit and confidence floors,
 posting-age and per-day limits, and per-ATS authority. Nothing is enabled by
-default and no apply worker exists yet, so nothing is ever submitted.
+default. The local apply worker, trust ladder, and Greenhouse/Lever/Ashby
+adapters are implemented, with preflight/fill, a guarded bounded submit window,
+and daemon support. Preflight is always non-submitting; the worker fills the
+form and stops at `WAITING_FOR_USER` unless an explicitly reviewed daemon
+submission is authorized.
 
 `/settings/ai` picks the model backend for the AI-assisted features: a local
 model over an OpenAI-compatible endpoint (Ollama, LM Studio, vLLM), Claude via
@@ -229,19 +233,26 @@ Environment variables: `SCAN_CYCLE_SECONDS` (default 60), `SCAN_LIMIT`
 
 ## Status
 
-**Phase 1 complete; Phase 2 nearly.** Built: the schema and migrations, the
-company registry, Greenhouse/Lever/Ashby clients, dedupe, the student-role
-classifier, the continuous scanner with adaptive polling and removal tracking,
-the job dashboard, internship alerts, the profile + Truth Ledger screen, and
-the rule-based half of Phase 3 — requirement extraction, the hard eligibility
-engine, and the fit engine, all shown on each job's detail page; and the
-application tracker with its §23 state machine, the answer bank (§16), the auto-apply
-rules engine (§18), analytics (§29), and read-only application preflight
-(§17/§19) — it opens the real form in a browser, reads what it asks for, and
-scores confidence. Not built: resume coverage
-(§13), the document builders (Phase 4), and anything that submits an application: the
-Playwright apply workers of §22 do not exist, and preflight has no code path
-that could type or submit — eligibility, fit scoring, resumes, and applying.
+The core local loop is implemented:
+
+- company registry, Greenhouse/Lever/Ashby discovery clients, normalization,
+  dedupe, student-role classification, adaptive scanning, removal tracking,
+  alerts, and the job dashboard;
+- candidate profile, Truth Ledger, resume-assisted profile suggestions,
+  requirement extraction, hard eligibility, fit scoring, the resume coverage
+  scoring core, answer bank, application tracker, and analytics;
+- application review surfaces, non-submitting preflight, form fill, the trust
+  ladder, local Playwright apply worker (§22), supported-ATS adapters, guarded
+  bounded submission, and the apply daemon.
+
+Preflight never submits. A normal worker run fills the form and stops at
+`WAITING_FOR_USER`; submission requires a separately reviewed, explicit daemon
+authorization within the bounded guard window.
+
+Still not built: resume coverage UI/integration, resume and cover-letter
+builders, unsupported ATS adapters, level-4 unattended submission and evidence,
+Gmail tracking, contact/outreach workflows, and AWS deployment.
+
 See §40 of the plan for the roadmap and §41 for what counts as a usable V1.
 
 ## Working agreement for this repo
