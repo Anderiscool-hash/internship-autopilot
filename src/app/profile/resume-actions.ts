@@ -135,7 +135,10 @@ export async function importResumeAction(form: FormData): Promise<void> {
     if (error instanceof ResumeReadError) {
       back({ errors: error.message });
     }
-    const detail = error instanceof Error ? error.message : String(error);
-    back({ errors: `That file could not be read: ${detail}` });
+    console.error("Unexpected resume import failure", error);
+    back({
+      errors:
+        "That file could not be read. Try a text-based PDF, DOCX, TXT, or Markdown file.",
+    });
   }
 }
