@@ -45,24 +45,31 @@ export function FitBreakdown({
             skipped rather than counted as zero.
           </p>
 
-          <table className="fit">
-            <tbody>
-              {fit.components.map((component) => (
-                <tr key={component.name}>
-                  <th scope="row">{LABELS[component.name]}</th>
-                  <td className="weight">
-                    {Math.round(WEIGHTS[component.name] * 100)}%
-                  </td>
-                  <td className="points">
-                    {component.score === null
-                      ? "skipped"
-                      : `${Math.round(component.score * 100)}`}
-                  </td>
-                  <td>{component.detail}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div
+            className="table-scroll"
+            role="region"
+            aria-label="Fit score breakdown"
+            tabIndex={0}
+          >
+            <table className="fit">
+              <tbody>
+                {fit.components.map((component) => (
+                  <tr key={component.name}>
+                    <th scope="row">{LABELS[component.name]}</th>
+                    <td className="weight">
+                      {Math.round(WEIGHTS[component.name] * 100)}%
+                    </td>
+                    <td className="points">
+                      {component.score === null
+                        ? "skipped"
+                        : `${Math.round(component.score * 100)}`}
+                    </td>
+                    <td>{component.detail}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </section>

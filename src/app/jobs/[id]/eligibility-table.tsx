@@ -17,6 +17,12 @@ const MARKS: Record<CheckVerdict, string> = {
   unknown: "?",
 };
 
+const MARK_LABELS: Record<CheckVerdict, string> = {
+  pass: "Pass",
+  fail: "Fail",
+  unknown: "Unknown",
+};
+
 /** What the overall verdict should say, in the spec's own vocabulary. */
 const VERDICT_TEXT = {
   eligible: "ELIGIBLE ✓",
@@ -83,17 +89,27 @@ export function EligibilityTable({
         </div>
       ) : (
         <>
-          <table className="checks">
-            <tbody>
-              {eligibility.checks.map((check) => (
-                <tr key={check.label} className={`check-${check.verdict}`}>
-                  <th scope="row">{check.label}</th>
-                  <td className="mark">{MARKS[check.verdict]}</td>
-                  <td>{check.reason}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div
+            className="table-scroll"
+            role="region"
+            aria-label="Eligibility checks"
+            tabIndex={0}
+          >
+            <table className="checks">
+              <tbody>
+                {eligibility.checks.map((check) => (
+                  <tr key={check.label} className={`check-${check.verdict}`}>
+                    <th scope="row">{check.label}</th>
+                    <td className="mark">
+                      <span aria-hidden="true">{MARKS[check.verdict]}</span>
+                      <span className="sr-only">{MARK_LABELS[check.verdict]}</span>
+                    </td>
+                    <td>{check.reason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
           <p className={`verdict verdict-${eligibility.verdict}`}>
             {VERDICT_TEXT[eligibility.verdict]}

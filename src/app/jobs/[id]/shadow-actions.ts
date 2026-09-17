@@ -42,16 +42,12 @@ export async function startShadowRunAction(form: FormData): Promise<void> {
   // process is as privileged as this app gets.
   if (!localRequestsTrusted()) {
     // The window would open on the server, not on the viewer's screen.
-    redirect(`/jobs/${jobId}?error=${encodeURIComponent(
-      "Shadow mode opens a browser on the machine running this app, so it can only be started from that machine.",
-    )}`);
+    redirect(`/jobs/${jobId}?error=local-only`);
   }
 
   const profile = await getProfile(db);
   if (!profile) {
-    redirect(`/jobs/${jobId}?error=${encodeURIComponent(
-      "Fill in your profile first — there would be nothing to put in the form.",
-    )}`);
+    redirect(`/jobs/${jobId}?error=profile-required`);
   }
 
   // Read an emailed verification code automatically when a mailbox is set up
@@ -67,9 +63,7 @@ export async function startShadowRunAction(form: FormData): Promise<void> {
   if (daemon) {
     const accepted = await submitToDaemon({ jobId, handoff: true, verify });
     if (accepted) {
-      redirect(`/jobs/${jobId}?saved=${encodeURIComponent(
-        "Opening the application form in a browser window. It will fill itself, then hand over to you.",
-      )}`);
+      redirect(`/jobs/${jobId}?saved=shadow-started`);
     }
     // The daemon refused it (or died between the health check and here) —
     // fall through to spawning a standalone run below.
@@ -89,7 +83,5 @@ export async function startShadowRunAction(form: FormData): Promise<void> {
   );
   child.unref();
 
-  redirect(`/jobs/${jobId}?saved=${encodeURIComponent(
-    "Opening the application form in a browser window. It will fill itself, then hand over to you.",
-  )}`);
+  redirect(`/jobs/${jobId}?saved=shadow-started`);
 }

@@ -2750,3 +2750,22 @@ table.checks.outcomes td {
     animation: none;
   }
 }
+
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-gutter: stable;
+}
+
+.table-scroll:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 40rem) {
+  .table-scroll table.checks,
+  .table-scroll table.fit {
+    min-width: 40rem;
+  }
+}

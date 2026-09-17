@@ -37,11 +37,23 @@ interface JobPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
+const JOB_ERRORS: Record<string, string> = {
+  "local-only":
+    "Shadow mode opens a browser on the machine running this app, so it can only be started from that machine.",
+  "profile-required":
+    "Fill in your profile first — there would be nothing verified to put in the form.",
+};
+
+const JOB_NOTICES: Record<string, string> = {
+  "shadow-started":
+    "Opening the application form in a browser window. It will fill itself, then hand over to you.",
+};
+
 export default async function JobDetailPage({ params, searchParams }: JobPageProps) {
   const { id } = await params;
   const query = await searchParams;
-  const message = typeof query.error === "string" ? query.error : null;
-  const notice = typeof query.saved === "string" ? query.saved : null;
+  const message = typeof query.error === "string" ? JOB_ERRORS[query.error] ?? null : null;
+  const notice = typeof query.saved === "string" ? JOB_NOTICES[query.saved] ?? null : null;
   const local = isLocalHost((await headers()).get("host"));
 
   const job = await db.job.findUnique({
