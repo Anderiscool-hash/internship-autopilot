@@ -9,7 +9,7 @@ import {
 } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { verificationProgress } from "@/lib/shadow/verdicts";
-import { logoutAction } from "./login/actions";
+import { SiteNav } from "./site-nav";
 import "./globals.css";
 
 // Metadata shows up in the browser tab and in link previews.
@@ -50,41 +50,13 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body>
-        {/* Plain links rather than a client-side nav component: every screen in
-            this app is server-rendered, so there is nothing for JavaScript to
-            do here. */}
+        <a className="skip-link" href="#main-content">
+          Skip to content
+        </a>
         {signedIn ? (
-        <nav className="site-nav">
-          <a href="/jobs">Jobs</a>
-          <a href="/companies">Companies</a>
-          <a href="/applications">Applications</a>
-          <a href="/shadow-runs">
-            Review
-            {pendingRuns !== null && pendingRuns > 0 ? (
-              // The count is the whole reason this link carries a badge: an
-              // unverified run is worth nothing to the trust ladder, so a
-              // backlog is invisible progress loss unless something says so.
-              <span className="nav-count" aria-label={`${pendingRuns} runs awaiting review`}>
-                {pendingRuns}
-              </span>
-            ) : null}
-          </a>
-          <a href="/answers">Answers</a>
-          <a href="/profile">Profile</a>
-          <a href="/analytics">Analytics</a>
-          <a href="/settings">Auto-apply</a>
-          <a href="/settings/ai">AI</a>
-          <a href="/settings/mailbox">Mailbox</a>
-          {remote ? (
-            <form action={logoutAction} className="nav-signout">
-              <button type="submit" className="link-button">
-                Sign out
-              </button>
-            </form>
-          ) : null}
-        </nav>
+          <SiteNav pendingRuns={pendingRuns} remote={remote} />
         ) : null}
-        {children}
+        <div id="main-content">{children}</div>
       </body>
     </html>
   );

@@ -49,30 +49,31 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   // "3h ago" ages should agree with each other.
   let result: Awaited<ReturnType<typeof listJobs>> | null = null;
   let companies: CompanyOption[] = [];
-  let dbError: string | null = null;
+  let databaseUnavailable = false;
 
   try {
     [result, companies] = await Promise.all([
       listJobs(db, filters, now),
       listCompanyOptions(db),
     ]);
-  } catch (error) {
+  } catch {
     // The overwhelmingly common cause is Postgres not running, which deserves
     // an instruction rather than a stack trace.
-    dbError = error instanceof Error ? error.message : String(error);
+    databaseUnavailable = true;
   }
 
-  if (dbError !== null || result === null) {
+  if (databaseUnavailable || result === null) {
     return (
       <main className="page page-wide">
         <h1>Jobs</h1>
         <div className="notice notice-error">
           <p>
-            <strong>Can&apos;t reach the database.</strong> Start it with{" "}
-            <code>npm run db:up</code> (Docker Desktop has to be running), then
-            reload this page.
+            <strong>Can&apos;t reach the database.</strong> Start Postgres, or run{" "}
+            <code>npm run db:up</code> when using Docker, then try again.
           </p>
-          <p className="detail">{dbError}</p>
+          <a className="button" href="/jobs">
+            Try again
+          </a>
         </div>
       </main>
     );
