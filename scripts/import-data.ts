@@ -93,6 +93,10 @@ async function main(): Promise<void> {
   await load("candidates", data.candidates as never, (row) =>
     db.candidate.create({ data: row as never }),
   );
+  // The document registry before anything that reads a default resume.
+  await load("candidateDocuments", (data.candidateDocuments ?? []) as never, (row) =>
+    db.candidateDocument.create({ data: row as never }),
+  );
   await load("workExperiences", (data.workExperiences ?? []) as never, (row) =>
     db.workExperience.create({ data: row as never }),
   );
@@ -113,6 +117,14 @@ async function main(): Promise<void> {
   );
   await load("applications", (data.applications ?? []) as never, (row) =>
     db.application.create({ data: row as never }),
+  );
+  // Shadow runs need their job and candidate; a submission attempt needs the
+  // application it was an attempt at, so it has to come after the block above.
+  await load("shadowRuns", (data.shadowRuns ?? []) as never, (row) =>
+    db.shadowRun.create({ data: row as never }),
+  );
+  await load("submissionAttempts", (data.submissionAttempts ?? []) as never, (row) =>
+    db.submissionAttempt.create({ data: row as never }),
   );
   await load("eventLogs", (data.eventLogs ?? []) as never, (row) =>
     db.eventLog.create({ data: row as never }),
