@@ -257,9 +257,20 @@ function experienceCheck(
     return { label, verdict: "pass", reason: "The posting states no experience minimum." };
   }
 
-  // Both sides stated a number, so this is an ordinary comparison.
+  // Both sides stated a number. The comparison is NOT a bare `years <= held`,
+  // because the student-role threshold is a floor of leniency that a stated
+  // number can raise but never lower.
+  //
+  // The reason is concrete: a candidate who honestly answers 0 full-time
+  // years would otherwise be ruled out of a posting titled "Payment Risk
+  // Intern" for asking "1 year of experience" — a line that, on an
+  // internship, is counting the coursework and internships this field
+  // explicitly excludes. Erring lenient here costs a glance at a posting;
+  // erring strict hides a job the candidate could have had and never tells
+  // them. Someone with six years still gets the benefit of their six.
   if (held !== null) {
-    if (years <= held) {
+    const allowed = Math.max(held, maxYears);
+    if (years <= allowed) {
       return {
         label,
         verdict: "pass",

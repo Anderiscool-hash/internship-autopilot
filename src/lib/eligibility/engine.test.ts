@@ -138,6 +138,27 @@ describe("checkEligibility", () => {
     expect(check(enough, "Experience requirement").verdict).toBe("pass");
   });
 
+  it("keeps the student-role threshold as a floor a stated zero cannot lower", () => {
+    // A real posting this protects: "Payment Risk Intern", which asks for
+    // "1 year of experience". Someone who honestly answers 0 full-time years
+    // must still see it.
+    for (const asked of [1, 2]) {
+      const result = checkEligibility(
+        profile({ yearsOfExperience: 0 }),
+        requirements({ minimumExperienceYears: asked }),
+      );
+      expect(check(result, "Experience requirement").verdict).toBe("pass");
+    }
+
+    // The floor is leniency, not a cap: six years of experience clears a
+    // posting asking for five, which the two-year threshold alone would not.
+    const experienced = checkEligibility(
+      profile({ yearsOfExperience: 6 }),
+      requirements({ minimumExperienceYears: 5 }),
+    );
+    expect(check(experienced, "Experience requirement").verdict).toBe("pass");
+  });
+
   it("treats a stated zero as a real answer, not as silence", () => {
     // 0 and null must not collapse: a stated zero can fail, silence cannot.
     const stated = checkEligibility(
