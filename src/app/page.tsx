@@ -12,6 +12,7 @@ import { ApplicationOutcome, ApplicationStatus, JobStatus } from "@prisma/client
 import { daemonStatus } from "@/lib/apply/daemon-client";
 import { db } from "@/lib/db";
 import { formatAge, formatEnum, formatLocation } from "./jobs/format";
+import { Icon } from "./ui-icon";
 
 export const dynamic = "force-dynamic";
 
@@ -151,7 +152,7 @@ export default async function HomePage() {
     actions.push({
       href: "/profile",
       label: "Create your candidate profile",
-      detail: "Eligibility, fit scoring and applications need a person to belong to.",
+      detail: "Add your experience and preferences to start finding roles that fit.",
       tone: "warn",
     });
   } else {
@@ -159,7 +160,7 @@ export default async function HomePage() {
       actions.push({
         href: "/profile",
         label: "Add verified facts",
-        detail: "The Truth Ledger is the only evidence document drafting may use.",
+        detail: "Add your skills and experience so tailored applications have the right details.",
         tone: "warn",
       });
     }
@@ -167,7 +168,7 @@ export default async function HomePage() {
       actions.push({
         href: "/answers",
         label: "Build your answer bank",
-        detail: "Unknown application questions stop the worker instead of being guessed.",
+        detail: "Save answers to common questions to keep applications moving.",
         tone: "info",
       });
     }
@@ -175,8 +176,8 @@ export default async function HomePage() {
   if (data.pendingReviews > 0) {
     actions.push({
       href: "/shadow-runs",
-      label: `Review ${data.pendingReviews} shadow ${data.pendingReviews === 1 ? "run" : "runs"}`,
-      detail: "Unverified runs count for nothing in the adapter trust ladder.",
+      label: `${data.pendingReviews} ${data.pendingReviews === 1 ? "run is" : "runs are"} ready for review`,
+      detail: "Check the test results and confirm what the application assistant got right.",
       tone: "warn",
     });
   }
@@ -191,8 +192,8 @@ export default async function HomePage() {
   if (data.failingCompanies > 0) {
     actions.push({
       href: "/companies",
-      label: `Inspect ${data.failingCompanies} failing ${data.failingCompanies === 1 ? "board" : "boards"}`,
-      detail: "Repeated scanner failures back off, which delays new-job discovery.",
+      label: `${data.failingCompanies} company ${data.failingCompanies === 1 ? "board needs" : "boards need"} attention`,
+      detail: "Some boards could not be checked. Take a look to keep new roles coming in.",
       tone: "warn",
     });
   }
@@ -201,32 +202,34 @@ export default async function HomePage() {
     <main className="page page-wide overview-page">
       <section className="overview-hero">
         <div>
-          <p className="eyebrow">Live workspace</p>
+          <p className="eyebrow">
+            Your workspace <span aria-hidden="true">&middot;</span>{" "}
+            <time dateTime={data.now.toISOString()}>{data.now.toLocaleDateString("en-US", { month: "long", day: "numeric" })}</time>
+          </p>
           <h1>{firstName ? `Welcome back, ${firstName}.` : "Your internship command center."}</h1>
           <p className="overview-intro">
-            Discovery, application readiness and the decisions only you can make,
-            in one place.
+            Review new opportunities and keep your applications moving.
           </p>
         </div>
         <div className="hero-actions">
-          <a className="button button-primary" href="/jobs">Explore open roles</a>
-          <a className="button" href="/applications">Open tracker</a>
+          <a className="button" href="/applications">View applications</a>
+          <a className="button button-primary" href="/jobs">Find opportunities <Icon name="arrow" /></a>
         </div>
       </section>
 
       <section className="metric-grid" aria-label="Search summary">
-        <MetricCard label="Open roles" value={data.openJobs} detail="in the job database" href="/jobs" />
-        <MetricCard label="New today" value={data.newJobs} detail="first seen in 24 hours" href="/jobs?days=1" />
-        <MetricCard label="Tracked" value={data.tracked} detail={`${data.applied} sent to employers`} href="/applications" />
-        <MetricCard label="Needs you" value={data.needsYou + data.pendingReviews} detail="reviews and application blockers" href={data.needsYou > 0 ? "/applications" : "/shadow-runs"} urgent={data.needsYou + data.pendingReviews > 0} />
+        <MetricCard label="Open listings" value={data.openJobs} detail="across your company boards" href="/jobs?all=1" />
+        <MetricCard label="New in 24 hours" value={data.newJobs} detail="recently discovered listings" href="/jobs?all=1&days=1" />
+        <MetricCard label="Applications" value={data.tracked} detail={`${data.applied} sent to employers`} href="/applications" />
+        <MetricCard label="Needs attention" value={data.needsYou + data.pendingReviews} detail="reviews and next steps" href={data.needsYou > 0 ? "/applications" : "/shadow-runs"} urgent={data.needsYou + data.pendingReviews > 0} />
       </section>
 
       <div className="overview-grid">
         <section className="overview-panel">
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">Priority queue</p>
-              <h2>Next actions</h2>
+              <p className="eyebrow">Keep things moving</p>
+              <h2>Your next steps</h2>
             </div>
             <span className="panel-count">{actions.length}</span>
           </div>
@@ -248,8 +251,8 @@ export default async function HomePage() {
         <section className="overview-panel">
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">Runtime</p>
-              <h2>System readiness</h2>
+              <p className="eyebrow">Behind the scenes</p>
+              <h2>Workspace status</h2>
             </div>
           </div>
           <div className="health-list">
@@ -261,9 +264,9 @@ export default async function HomePage() {
               tone={data.lastScan && data.failingCompanies === 0 ? "good" : "warn"}
             />
             <HealthRow
-              label="Apply daemon"
-              value={data.daemon ? "Online" : "Offline"}
-              detail={data.daemon ? `Process ${data.daemon.pid} is accepting work` : "Start npm run daemon before a fill or submission"}
+              label="Applications"
+              value={data.daemon ? "Worker online" : "Worker offline"}
+              detail={data.daemon ? "Ready to help fill application forms" : "Form filling will be available when the worker starts"}
               href="/applications"
               tone={data.daemon ? "good" : "idle"}
             />
@@ -275,9 +278,9 @@ export default async function HomePage() {
               tone={data.ai && data.ai.provider !== "NONE" ? "good" : "idle"}
             />
             <HealthRow
-              label="Candidate data"
+              label="Your profile"
               value={data.profile ? `${data.profile._count.truthFacts} verified facts` : "Profile missing"}
-              detail={data.profile ? `${data.profile._count.answerBankEntries} saved answers, ${data.profile._count.documents} documents` : "Add only facts you can stand behind"}
+              detail={data.profile ? `${data.profile._count.answerBankEntries} saved answers, ${data.profile._count.documents} documents` : "Add your experience to get started"}
               href="/profile"
               tone={data.profile && data.profile._count.truthFacts > 0 ? "good" : "warn"}
             />
@@ -288,10 +291,10 @@ export default async function HomePage() {
       <section className="overview-panel recent-panel">
         <div className="panel-heading">
           <div>
-            <p className="eyebrow">Fresh from monitored boards</p>
-            <h2>Newest open roles</h2>
+            <p className="eyebrow">Across your company boards</p>
+            <h2>Latest discoveries</h2>
           </div>
-          <a href="/jobs">View all jobs</a>
+          <a href="/jobs?all=1">All listings <Icon name="arrow" /></a>
         </div>
         {data.recentJobs.length === 0 ? (
           <p className="empty-compact">No open roles yet. Add a verified company board, then run discovery.</p>
@@ -299,12 +302,13 @@ export default async function HomePage() {
           <div className="recent-jobs">
             {data.recentJobs.map((job) => (
               <a className="recent-job" href={`/jobs/${job.id}`} key={job.id}>
+                <span className="company-monogram" aria-hidden="true">{job.company.name.slice(0, 2).toUpperCase()}</span>
                 <span className="recent-job-main">
                   <strong>{job.title}</strong>
                   <span>{job.company.name} · {formatLocation(job.location)}</span>
                 </span>
                 <span className="recent-job-meta">
-                  <span className="badge">{formatEnum(job.remoteType)}</span>
+                  {job.remoteType !== "UNKNOWN" ? <span className="badge">{formatEnum(job.remoteType)}</span> : null}
                   <time dateTime={job.firstSeenAt.toISOString()}>{formatAge(job.firstSeenAt, data.now)}</time>
                   <span aria-hidden="true">→</span>
                 </span>
@@ -316,8 +320,8 @@ export default async function HomePage() {
 
       <section className="pipeline-panel" aria-labelledby="pipeline-title">
         <div>
-          <p className="eyebrow">Outcome pipeline</p>
-          <h2 id="pipeline-title">From discovery to offer</h2>
+          <p className="eyebrow">The bigger picture</p>
+          <h2 id="pipeline-title">Your progress</h2>
         </div>
         <ol className="pipeline">
           <PipelineStep label="Open" value={data.openJobs} />

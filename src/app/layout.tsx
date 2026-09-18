@@ -11,6 +11,7 @@ import { db } from "@/lib/db";
 import { verificationProgress } from "@/lib/shadow/verdicts";
 import { SiteNav } from "./site-nav";
 import "./globals.css";
+import "./workspace.css";
 
 // Metadata shows up in the browser tab and in link previews.
 export const metadata: Metadata = {
@@ -48,8 +49,11 @@ export default async function RootLayout({
   }
 
   return (
-    <html lang="en">
-      <body>
+    <html lang="en" data-theme="dark" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: `try { const theme = localStorage.getItem("autopilot-theme"); if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme; } catch {}` }} />
+      </head>
+      <body className={signedIn ? "workspace-shell" : undefined}>
         <a className="skip-link" href="#main-content">
           Skip to content
         </a>

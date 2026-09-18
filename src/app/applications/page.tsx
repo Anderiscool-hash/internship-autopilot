@@ -15,6 +15,7 @@ import { columnFor, TRACKER_COLUMNS } from "@/lib/applications/machine";
 import { formatEnum } from "../jobs/format";
 import { ApplicationCard } from "./application-card";
 import type { ReviewGate } from "./review-panel";
+import { Icon } from "../ui-icon";
 
 export const dynamic = "force-dynamic";
 
@@ -112,7 +113,7 @@ export default async function ApplicationsPage({ searchParams }: TrackerPageProp
       <h1>Applications</h1>
       <p className="lede">
         {applications.length === 0
-          ? "Nothing tracked yet."
+          ? "Keep every opportunity and next step in one place."
           : `${applications.length} tracked · ${countApplied(applications)} applied · ${countOutcome(applications, ApplicationOutcome.INTERVIEW)} interviews · ${countOutcome(applications, ApplicationOutcome.OFFER)} offers`}
       </p>
 
@@ -128,10 +129,15 @@ export default async function ApplicationsPage({ searchParams }: TrackerPageProp
       ) : null}
 
       {applications.length === 0 ? (
-        <p className="empty">
-          Open a job from <a href="/jobs">the dashboard</a> and save it to start
-          tracking it here.
-        </p>
+        <section className="tracker-empty" aria-labelledby="tracker-empty-title">
+          <Icon name="applications" />
+          <h2 id="tracker-empty-title">Room for your next opportunity.</h2>
+          <p>Save a role that interests you. Track its progress here, from your first application to the final decision.</p>
+          <a className="button button-primary" href="/jobs">Find your first opportunity <Icon name="arrow" /></a>
+          <ol className="tracker-empty-stages" aria-label="Application stages">
+            {TRACKER_COLUMNS.map(column => <li key={column.key}>{column.label}</li>)}
+          </ol>
+        </section>
       ) : (
         <div className="board">
           {TRACKER_COLUMNS.map((column) => {
@@ -169,13 +175,11 @@ export default async function ApplicationsPage({ searchParams }: TrackerPageProp
         </div>
       )}
 
-      <section>
-        <h2>Statuses</h2>
+      <details className="tracker-status-guide">
+        <summary>How application stages work</summary>
         <p className="note">
-          The columns group spec §23&rsquo;s workflow states. The bot moves an
-          application one step at a time; you can always say what actually
-          happened — &ldquo;I applied to this myself&rdquo; is legal from
-          anywhere, because it is a report, not a step in the plan.
+          Applications move through these stages as you make progress. If you
+          apply on your own, you can record that at any point to keep your tracker up to date.
         </p>
         <p className="requirements">
           {TRACKER_COLUMNS.map((column) => (
@@ -185,7 +189,7 @@ export default async function ApplicationsPage({ searchParams }: TrackerPageProp
             </span>
           ))}
         </p>
-      </section>
+      </details>
     </main>
   );
 }
