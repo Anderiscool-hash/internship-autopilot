@@ -14,6 +14,12 @@
  * dropped and the remaining weights renormalized, and the result reports how
  * much of the scoring weight it was actually able to use.
  *
+ * That renormalization has a floor: see MIN_COVERAGE. Below it the engine
+ * returns no score rather than a confident-looking number resting on almost
+ * nothing, because the scores in this app are read side by side in a sorted
+ * column, and two numbers that look the same have to mean roughly the same
+ * thing.
+ *
  * Everything here is pure. Spec §12's rule that only eligible jobs get scored
  * is enforced by the caller, not here.
  */
@@ -33,6 +39,36 @@ export const WEIGHTS = {
   freshness: 0.05,
 } as const;
 
+/**
+ * The least scoring weight a published score is allowed to rest on, 0-1.
+ *
+ * Skipped components are dropped from the total and the survivors are
+ * renormalized, which is the right thing to do for one or two blanks but
+ * quietly stops being right when most of the weight is missing. A profile with
+ * nothing filled in but a posting date renormalizes freshness alone — five
+ * percent of the weight — into a confident-looking "97% fit" that means only
+ * "this was posted yesterday". Put that in a sorted column beside a 97% built
+ * from the full seven components and the two numbers look identical while
+ * saying completely different things.
+ *
+ * So below this line the engine declines to publish a number at all. Every
+ * component and its explanation still come back, so the reader sees exactly
+ * which blanks to fill in to earn a score.
+ *
+ * JUDGMENT CALL — why 0.6: it is the smallest threshold that still forces at
+ * least one of the two 25% components (role similarity, skill alignment) to
+ * have been scored, because everything else put together only adds up to 0.5.
+ * Those two are the ones that actually compare the candidate to the work; a
+ * score computed without either is a score about dates and geography.
+ *
+ * What it trades away: jobs that would previously have shown a renormalized
+ * number now show "—" until the profile is filled in further. That is a real
+ * loss of coverage in the job table, and it is the intended trade — a missing
+ * number sends the reader to fix their profile, whereas a confident wrong
+ * number sends them to apply.
+ */
+export const MIN_COVERAGE = 0.6;
+
 export type FitComponentName = keyof typeof WEIGHTS;
 
 /** One component's contribution. */
@@ -46,7 +82,11 @@ export interface FitComponent {
 
 /** The scored result (spec §12's "FIT SCORE: 92%"). */
 export interface FitResult {
-  /** 0-100, rounded. Null when no component could be scored at all. */
+  /**
+   * 0-100, rounded. Null when `coverage` came in below MIN_COVERAGE — either
+   * nothing could be scored at all, or so little could that the renormalized
+   * number would not be comparable with the other jobs in the list.
+   */
   score: number | null;
   components: FitComponent[];
   /**
@@ -163,14 +203,36 @@ export function mentions(text: string, skill: string): boolean {
   return new RegExp(`${leading}${escaped}${trailing}`, "i").test(text);
 }
 
-/** Fraction of the candidate's wanted roles that overlap the job title. */
+/**
+ * Fraction of the candidate's wanted roles that overlap the job title.
+ *
+ * This is the only component that reads the job title at all, which makes its
+ * behaviour when the profile is thin more important than it looks. Desired
+ * roles are a field somebody has to type by hand — nothing fills them in the
+ * way skills get filled in from an imported resume — so on a real profile they
+ * are very often empty. When this component skipped in that case, its 25%
+ * dropped out of the total and the job title stopped influencing the score by
+ * any route whatsoever: "Software Engineering Intern" and "Warehouse
+ * Operations Associate" with the same description came out identical.
+ *
+ * So when there are no desired roles, the title is compared against the
+ * skills and project technologies the profile does have. That is a weaker
+ * question than the one this component normally asks — "is this the job you
+ * said you wanted" becomes "does the title name something you can do" — and
+ * the detail line says so, because a reader comparing two scores deserves to
+ * know which question was answered.
+ *
+ * Null is still returned when there is nothing on either side to compare, so
+ * "unknown" never quietly becomes "zero".
+ */
 function roleSimilarity(profile: FitProfile, job: FitJob): FitComponent {
   const name: FitComponentName = "roleSimilarity";
+  const titleWords = tokenize(job.title);
+
   if (profile.desiredRoles.length === 0) {
-    return { name, score: null, detail: "Your profile lists no desired roles." };
+    return roleSimilarityFromSkills(profile, titleWords);
   }
 
-  const titleWords = tokenize(job.title);
   let best = 0;
   let bestRole = "";
 
@@ -194,6 +256,67 @@ function roleSimilarity(profile: FitProfile, job: FitJob): FitComponent {
       best === 0
         ? "The title matches none of your desired roles."
         : `Closest desired role: "${bestRole}" (${Math.round(best * 100)}% of its words in the title).`,
+  };
+}
+
+/**
+ * The no-desired-roles fallback: score the title against what the profile can do.
+ *
+ * The vocabulary is skills plus project technologies, run through the same
+ * `tokenize` the normal path uses so that both sides are compared as the same
+ * kind of thing, and matched with the same `wordsMatch`. No new matching rule
+ * is introduced here on purpose — a second, subtly different notion of "these
+ * two words mean the same thing" living in the same file is how scores start
+ * disagreeing with their own explanations.
+ *
+ * JUDGMENT CALL — the fraction is of the TITLE's words, not of the profile's.
+ * Dividing by the profile's word count would punish people for listing a lot
+ * of skills: one perfect hit out of thirty listed technologies would read as
+ * 3%. Dividing by the title's words asks the question that actually matters —
+ * how much of what this job calls itself is something you have done.
+ */
+function roleSimilarityFromSkills(
+  profile: FitProfile,
+  titleWords: string[],
+): FitComponent {
+  const name: FitComponentName = "roleSimilarity";
+
+  const vocabulary = [...profile.skills, ...profile.projectTechnologies].flatMap(
+    (entry) => tokenize(entry),
+  );
+
+  // Nothing on the profile side at all. Unknown, not zero — the whole point of
+  // this file's design is that a blank form does not look like a bad match.
+  if (vocabulary.length === 0) {
+    return {
+      name,
+      score: null,
+      detail:
+        "No desired roles set, and no skills or project technologies to compare the title against instead.",
+    };
+  }
+
+  // Nothing on the job side either: a title like "Intern" is entirely stop
+  // words, so there is genuinely nothing to judge.
+  if (titleWords.length === 0) {
+    return {
+      name,
+      score: null,
+      detail: "The job title has no words specific enough to compare with your profile.",
+    };
+  }
+
+  const matched = titleWords.filter((titleWord) =>
+    vocabulary.some((word) => wordsMatch(word, titleWord)),
+  );
+
+  return {
+    name,
+    score: matched.length / titleWords.length,
+    detail:
+      matched.length === 0
+        ? "No desired roles set — matched the title against your skills instead, and it names none of them."
+        : `No desired roles set — matched the title against your skills instead: ${matched.slice(0, 6).join(", ")}.`,
   };
 }
 
@@ -373,8 +496,16 @@ export function scoreFit(profile: FitProfile, job: FitJob, now: Date): FitResult
     usedWeight += weight;
   }
 
-  if (usedWeight === 0) {
-    return { score: null, components, coverage: 0 };
+  // Too little of the weight was scorable for the renormalized number to mean
+  // anything, so no number is published. Note what this deliberately is NOT:
+  // it is not `weighted / Math.max(usedWeight, MIN_COVERAGE)`. That version
+  // would keep producing a score by treating the missing weight as if it had
+  // been scored zero — the exact "silence counts as a bad match" behaviour this
+  // whole file is built to avoid. Refusing to answer is the honest option; the
+  // components and their explanations still come back so the reader can see
+  // which blanks to fill in.
+  if (usedWeight < MIN_COVERAGE) {
+    return { score: null, components, coverage: usedWeight };
   }
 
   return {

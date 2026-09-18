@@ -11,6 +11,7 @@ import { describe, it, expect } from "vitest";
 import { NO_REQUIREMENTS, type JobRequirements } from "../eligibility/requirements";
 import {
   mentions,
+  MIN_COVERAGE,
   scoreFit,
   WEIGHTS,
   wordsMatch,
@@ -124,8 +125,20 @@ describe("scoreFit", () => {
   });
 
   it("treats a blank profile field as unknown, not as zero", () => {
-    const withSkills = scoreFit(profile(), job(), NOW);
-    const withoutSkills = scoreFit(profile({ skills: [] }), job(), NOW);
+    // The job is fully specified (experience and education stated) so that
+    // dropping skills still leaves 75% of the weight scored — comfortably
+    // above MIN_COVERAGE. This test is about one blank field being survivable;
+    // the separate coverage-floor tests below are about a profile so thin that
+    // the number stops being comparable.
+    const specified = job({
+      requirements: {
+        ...NO_REQUIREMENTS,
+        minimumExperienceYears: 0,
+        educationLevel: "bachelors",
+      } as JobRequirements,
+    });
+    const withSkills = scoreFit(profile(), specified, NOW);
+    const withoutSkills = scoreFit(profile({ skills: [] }), specified, NOW);
 
     expect(component(withoutSkills, "skillAlignment").score).toBeNull();
     // Dropping a component the job scored well on should not raise the score;
@@ -146,17 +159,25 @@ describe("scoreFit", () => {
     expect(sparse.coverage).toBeCloseTo(WEIGHTS.freshness, 5);
   });
 
-  it("returns a null score when nothing at all could be judged", () => {
-    // Freshness always scores, so the only way to have nothing is a job with
-    // no first-seen date — which cannot happen. This asserts the guard holds
-    // rather than a real scenario.
+  it("publishes no score when almost nothing could be judged", () => {
+    // Freshness always scores, so a profile this empty leaves exactly 5% of
+    // the weight in play. Renormalizing that into a number would produce a
+    // "97% fit" that means nothing but "posted yesterday" — so no number is
+    // published. The components still come back, blanks and all, because the
+    // list of skipped components IS the useful output here: it is the
+    // to-do list for the profile.
     const result = scoreFit(
       profile({ desiredRoles: [], skills: [], preferredLocations: [], projectTechnologies: [], degree: null }),
       job(),
       NOW,
     );
-    expect(result.score).not.toBeNull();
+    expect(result.score).toBeNull();
+    expect(result.coverage).toBeCloseTo(WEIGHTS.freshness, 5);
     expect(result.components.filter((item) => item.score === null).length).toBe(6);
+    expect(result.components).toHaveLength(7);
+    for (const item of result.components) {
+      expect(item.detail.length, item.name).toBeGreaterThan(0);
+    }
   });
 
   it("gives full marks for skills the posting names and none for those it does not", () => {
@@ -255,5 +276,210 @@ describe("scoreFit", () => {
     expect(WEIGHTS.educationAlignment).toBe(0.1);
     expect(WEIGHTS.location).toBe(0.1);
     expect(WEIGHTS.freshness).toBe(0.05);
+  });
+});
+
+/**
+ * The no-desired-roles fallback.
+ *
+ * Desired roles are typed by hand and nothing prefills them, so on a profile
+ * built by seeding and importing they are simply empty — which used to make
+ * roleSimilarity skip, take its 25% out of the total with it, and leave the
+ * job title influencing the score by no route at all.
+ */
+describe("roleSimilarity with no desired roles set", () => {
+  it("still lets the job title move the score", () => {
+    // Everything but the title is identical between the two jobs, so any
+    // difference in the total is the title's doing and nothing else.
+    const thin = profile({
+      desiredRoles: [],
+      skills: ["Python", "TypeScript", "Software Development"],
+    });
+    const relevant = scoreFit(thin, job({ title: "Software Engineering Intern" }), NOW);
+    const irrelevant = scoreFit(thin, job({ title: "Warehouse Operations Associate" }), NOW);
+
+    expect(relevant.score).not.toBeNull();
+    expect(irrelevant.score).not.toBeNull();
+    expect(relevant.score as number).toBeGreaterThan(irrelevant.score as number);
+  });
+
+  it("says in the detail which question it actually answered", () => {
+    const result = scoreFit(
+      profile({ desiredRoles: [], skills: ["Python", "Software Development"] }),
+      job({ title: "Software Engineering Intern" }),
+      NOW,
+    );
+    const role = component(result, "roleSimilarity");
+    expect(role.score).not.toBeNull();
+    // The reader must be able to tell a title scored against wanted roles from
+    // a title scored against skills; they are different claims.
+    expect(role.detail).toContain("No desired roles set");
+  });
+
+  /**
+   * KNOWN LIMITATION, asserted so it is visible rather than folklore.
+   *
+   * The fallback compares words, and "software"/"engineering" share no word
+   * with "python"/"typescript". Nothing in this file knows that Python is a
+   * software-engineering skill — that is domain knowledge, and supplying it
+   * would mean adding a role-family vocabulary, which is a bigger decision
+   * than this fix. So a profile whose skills are only bare technology names
+   * still cannot tell those two titles apart. It scores them both 0 rather
+   * than skipping the component, which at least keeps the 25% in the
+   * denominator where the other components can be seen through it.
+   *
+   * If a role-family vocabulary is ever added, this test should fail. That is
+   * the point of it.
+   */
+  it("cannot separate two titles that share no words with the profile", () => {
+    const thin = profile({ desiredRoles: [], skills: ["Python", "TypeScript"] });
+    const relevant = scoreFit(thin, job({ title: "Software Engineering Intern" }), NOW);
+    const irrelevant = scoreFit(thin, job({ title: "Warehouse Operations Associate" }), NOW);
+
+    expect(component(relevant, "roleSimilarity").score).toBe(0);
+    expect(component(irrelevant, "roleSimilarity").score).toBe(0);
+    expect(relevant.score).toBe(irrelevant.score);
+  });
+
+  it("still returns unknown when there is nothing at all to compare with", () => {
+    const result = scoreFit(
+      profile({ desiredRoles: [], skills: [], projectTechnologies: [] }),
+      job(),
+      NOW,
+    );
+    expect(component(result, "roleSimilarity").score).toBeNull();
+  });
+
+  it("falls back to project technologies when skills are empty", () => {
+    const result = scoreFit(
+      profile({ desiredRoles: [], skills: [], projectTechnologies: ["React"] }),
+      job({ title: "React Developer Intern" }),
+      NOW,
+    );
+    expect(component(result, "roleSimilarity").score).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The coverage floor.
+ *
+ * Renormalizing over the surviving weight is right for one or two blanks and
+ * wrong when most of the weight is gone: 5% of the weight renormalized into
+ * "97%" sits in the same sorted column as a 97% built from everything, and the
+ * reader cannot tell them apart.
+ */
+describe("the coverage floor", () => {
+  /** A profile and job that together leave exactly MIN_COVERAGE scorable. */
+  function atTheFloor() {
+    return scoreFit(
+      // Skills blank drops 0.25; the posting states a degree but no experience
+      // minimum, which drops another 0.15. Left: role 0.25, project 0.1,
+      // education 0.1, location 0.1, freshness 0.05 = exactly 0.6.
+      profile({ skills: [] }),
+      job({
+        requirements: { ...NO_REQUIREMENTS, educationLevel: "bachelors" } as JobRequirements,
+      }),
+      NOW,
+    );
+  }
+
+  /** The next rung down on the weight grid: 0.55. */
+  function belowTheFloor() {
+    return scoreFit(
+      // Role 0.25 and skills 0.25 survive; project, education, experience and
+      // location are all unknown. 0.55, just under the line.
+      profile({ projectTechnologies: [], preferredLocations: [], degree: null }),
+      job(),
+      NOW,
+    );
+  }
+
+  it("publishes a score at exactly the floor", () => {
+    const result = atTheFloor();
+    expect(result.coverage).toBeCloseTo(MIN_COVERAGE, 5);
+    expect(result.score).not.toBeNull();
+  });
+
+  it("refuses to publish one just below the floor", () => {
+    const result = belowTheFloor();
+    expect(result.coverage).toBeCloseTo(0.55, 5);
+    expect(result.coverage).toBeLessThan(MIN_COVERAGE);
+    expect(result.score).toBeNull();
+  });
+
+  it("still returns every component and explanation when it refuses", () => {
+    const result = belowTheFloor();
+    expect(result.components).toHaveLength(Object.keys(WEIGHTS).length);
+    for (const item of result.components) {
+      expect(item.detail.length, item.name).toBeGreaterThan(0);
+    }
+    // The blanks are the actionable part: these are the fields to go and fill.
+    expect(result.components.filter((item) => item.score === null).length).toBeGreaterThan(0);
+  });
+
+  it("does not floor the denominator instead", () => {
+    // Flooring the denominator (weighted / max(usedWeight, MIN_COVERAGE))
+    // would have produced a number here, and that number would have been the
+    // missing weight counted as zero. The contract is a refusal, not a
+    // deflated score.
+    const result = belowTheFloor();
+    expect(result.score).not.toBe(0);
+    expect(result.score).toBeNull();
+  });
+
+  /**
+   * Property: a published score always rests on at least MIN_COVERAGE.
+   *
+   * Swept rather than randomized — every combination of blank and filled
+   * profile fields against two kinds of posting, which is the whole input
+   * space that matters here and runs in milliseconds.
+   */
+  it("never publishes a score below MIN_COVERAGE, over every profile shape", () => {
+    const requirementVariants: JobRequirements[] = [
+      { ...NO_REQUIREMENTS } as JobRequirements,
+      {
+        ...NO_REQUIREMENTS,
+        minimumExperienceYears: 1,
+        educationLevel: "bachelors",
+      } as JobRequirements,
+    ];
+    const titles = ["Software Engineering Intern", "Warehouse Operations Associate"];
+
+    let published = 0;
+    let refused = 0;
+
+    // Five independent blank/filled switches = 32 profile shapes.
+    for (let bits = 0; bits < 32; bits += 1) {
+      const candidate = profile({
+        desiredRoles: bits & 1 ? ["Software Engineering Intern"] : [],
+        skills: bits & 2 ? ["Python", "TypeScript"] : [],
+        preferredLocations: bits & 4 ? ["New York"] : [],
+        projectTechnologies: bits & 8 ? ["TypeScript"] : [],
+        degree: bits & 16 ? "BS Computer Science" : null,
+      });
+
+      for (const requirements of requirementVariants) {
+        for (const title of titles) {
+          const result = scoreFit(candidate, job({ title, requirements }), NOW);
+          const label = `bits=${bits} title=${title} reqs=${requirements.educationLevel}`;
+
+          expect(result.components, label).toHaveLength(Object.keys(WEIGHTS).length);
+          if (result.score === null) {
+            refused += 1;
+            expect(result.coverage, label).toBeLessThan(MIN_COVERAGE);
+          } else {
+            published += 1;
+            expect(result.coverage, label).toBeGreaterThanOrEqual(MIN_COVERAGE);
+            expect(result.score, label).toBeGreaterThanOrEqual(0);
+            expect(result.score, label).toBeLessThanOrEqual(100);
+          }
+        }
+      }
+    }
+
+    // Guard against the sweep silently testing nothing: both outcomes must
+    // actually occur in it.
+    expect(published).toBeGreaterThan(0);
+    expect(refused).toBeGreaterThan(0);
   });
 });
