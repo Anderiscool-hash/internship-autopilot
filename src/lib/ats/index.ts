@@ -16,6 +16,7 @@ import type { AtsType, CanonicalJob } from "@/lib/jobs/types";
 import { fetchGreenhouseJobs } from "./greenhouse";
 import { fetchLeverJobs } from "./lever";
 import { fetchAshbyJobs } from "./ashby";
+import { fetchSmartRecruitersJobs } from "./smartrecruiters";
 
 /**
  * The shape every ATS client function must have: given a company's board
@@ -29,9 +30,9 @@ export type AtsJobFetcher = (
 
 /**
  * Thrown when the registry is asked to fetch jobs for an ATS type that
- * doesn't have a client implemented yet (Workday, SmartRecruiters, iCIMS,
- * Jobvite, Oracle, SAP SuccessFactors, and custom career pages - spec
- * section 4 lists these as future work). Callers should catch this and
+ * doesn't have a client implemented yet (Workday, iCIMS, Jobvite, Oracle,
+ * SAP SuccessFactors, and custom career pages - spec section 4 lists these
+ * as future work). Callers should catch this and
  * route the company to manual/Level-0 handling (spec section 21) instead of
  * crashing the scan loop.
  */
@@ -41,7 +42,7 @@ export class UnsupportedAtsError extends Error {
   constructor(atsType: AtsType) {
     super(
       `No job-board client is implemented yet for ATS type "${atsType}". ` +
-        `Currently supported: greenhouse, lever, ashby.`,
+        `Currently supported: greenhouse, lever, ashby, smartrecruiters.`,
     );
     this.name = "UnsupportedAtsError";
     this.atsType = atsType;
@@ -50,14 +51,15 @@ export class UnsupportedAtsError extends Error {
 
 /**
  * Maps each ATS type we know how to fetch to its client function. Platforms
- * with no entry here (workday, smartrecruiters, icims, jobvite, oracle,
- * sap, custom) simply aren't implemented yet - `getAtsJobFetcher` turns a
+ * with no entry here (workday, icims, jobvite, oracle, sap, custom) simply
+ * aren't implemented yet - `getAtsJobFetcher` turns a
  * missing entry into a clear UnsupportedAtsError rather than `undefined`
  * silently propagating.
  */
 const registry: Partial<Record<AtsType, AtsJobFetcher>> = {
   greenhouse: fetchGreenhouseJobs,
   lever: fetchLeverJobs,
+  smartrecruiters: fetchSmartRecruitersJobs,
   ashby: fetchAshbyJobs,
 };
 
