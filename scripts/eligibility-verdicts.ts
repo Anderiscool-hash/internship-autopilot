@@ -30,7 +30,11 @@ async function main(): Promise<void> {
   const profile = toEligibilityProfile(stored);
 
   const jobs = await db.job.findMany({ select: { title: true, description: true } });
-  const student = jobs.filter((j) => classifyStudentRole(j.title).verdict !== "reject");
+  // Classify exactly the way the dashboard does — title PLUS the requirements
+  // extracted from the body — or this reports on a pool the app never shows.
+  const student = jobs.filter(
+    (j) => classifyStudentRole(j.title, extractRequirements(j.description)).verdict !== "reject",
+  );
 
   let pass = 0;
   let fail = 0;

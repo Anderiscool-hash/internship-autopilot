@@ -579,3 +579,198 @@ describe("classifyStudentRole", () => {
     });
   });
 });
+
+/**
+ * Tests for the years-of-experience arbiter.
+ *
+ * Rule (d) — "the title has a weak student-ish word in it" — used to end at
+ * ambiguous, which downstream code treats as keep. These cases cover the
+ * evidence that now resolves it, and just as importantly the cases where the
+ * evidence must be ignored.
+ */
+describe("classifyStudentRole with posting evidence", () => {
+  describe("rule (d) resolved by years demanded", () => {
+    it("should reject 'Financial Data Analyst' when the posting asks for 4 years", () => {
+      const result = classifyStudentRole("Financial Data Analyst", {
+        minimumExperienceYears: 4,
+      });
+      expect(result.verdict).toBe("reject");
+      // The reason must name both halves of the argument.
+      expect(result.reason).toContain("analyst");
+      expect(result.reason).toContain("4");
+    });
+
+    it("should reject 'Account Associate - SF' when the posting asks for 4 years", () => {
+      const result = classifyStudentRole("Account Associate - SF", {
+        minimumExperienceYears: 4,
+      });
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("associate");
+      expect(result.reason).toContain("4");
+    });
+
+    it("should reject 'University Recruiter' when the posting asks for 5 years", () => {
+      const result = classifyStudentRole("University Recruiter", {
+        minimumExperienceYears: 5,
+      });
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("university");
+      expect(result.reason).toContain("5");
+    });
+
+    it("should reject a title whose only signal is a product term ('Data Residency')", () => {
+      const result = classifyStudentRole(
+        "Systems Engineer - Global Resource Management (Data Residency)",
+        { minimumExperienceYears: 3 },
+      );
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("residency");
+    });
+
+    it("should name every matched signal when a title has more than one", () => {
+      const result = classifyStudentRole("Junior Analyst", {
+        minimumExperienceYears: 8,
+      });
+      expect(result.verdict).toBe("reject");
+      expect(result.reason).toContain("junior");
+      expect(result.reason).toContain("analyst");
+    });
+  });
+
+  describe("silence is not evidence", () => {
+    it("should stay ambiguous for 'Financial Data Analyst' when years are null", () => {
+      const result = classifyStudentRole("Financial Data Analyst", {
+        minimumExperienceYears: null,
+      });
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("early-career signal");
+    });
+
+    it("should stay ambiguous for 'Account Associate - SF' when years are null", () => {
+      const result = classifyStudentRole("Account Associate - SF", {
+        minimumExperienceYears: null,
+      });
+      expect(result.verdict).toBe("ambiguous");
+    });
+
+    it("should stay ambiguous for 'University Recruiter' when years are null", () => {
+      const result = classifyStudentRole("University Recruiter", {
+        minimumExperienceYears: null,
+      });
+      expect(result.verdict).toBe("ambiguous");
+    });
+
+    it("should stay ambiguous when the posting object itself is null", () => {
+      const result = classifyStudentRole("Financial Data Analyst", null);
+      expect(result.verdict).toBe("ambiguous");
+    });
+  });
+
+  describe("at or under the threshold changes nothing", () => {
+    it("should stay ambiguous for 'Financial Data Analyst' at 1 year", () => {
+      const result = classifyStudentRole("Financial Data Analyst", {
+        minimumExperienceYears: 1,
+      });
+      expect(result.verdict).toBe("ambiguous");
+    });
+
+    it("should stay ambiguous for 'Account Associate - SF' at 1 year", () => {
+      const result = classifyStudentRole("Account Associate - SF", {
+        minimumExperienceYears: 1,
+      });
+      expect(result.verdict).toBe("ambiguous");
+    });
+
+    it("should stay ambiguous for 'University Recruiter' at 1 year", () => {
+      const result = classifyStudentRole("University Recruiter", {
+        minimumExperienceYears: 1,
+      });
+      expect(result.verdict).toBe("ambiguous");
+    });
+
+    it("should stay ambiguous at exactly the threshold (2 years)", () => {
+      const result = classifyStudentRole("Data Analyst", {
+        minimumExperienceYears: 2,
+      });
+      expect(result.verdict).toBe("ambiguous");
+    });
+
+    it("should stay ambiguous at 0 years", () => {
+      const result = classifyStudentRole("Data Analyst", {
+        minimumExperienceYears: 0,
+      });
+      expect(result.verdict).toBe("ambiguous");
+    });
+  });
+
+  describe("an explicit student keyword outranks the body", () => {
+    it("should KEEP 'Software Engineer Intern' even when the posting asks for 8 years", () => {
+      const result = classifyStudentRole("Software Engineer Intern", {
+        minimumExperienceYears: 8,
+      });
+      expect(result.verdict).toBe("keep");
+      expect(result.reason).toContain("intern");
+    });
+
+    it("should KEEP 'Summer Associate' even when the posting asks for 6 years", () => {
+      // "associate" is also an early-career signal, but rule (b) fires first
+      // on the explicit "summer associate" keep term, so (d) is never reached.
+      const result = classifyStudentRole("Summer Associate", {
+        minimumExperienceYears: 6,
+      });
+      expect(result.verdict).toBe("keep");
+    });
+
+    it("should leave a rule-(a) contradiction ambiguous despite 8 years", () => {
+      const result = classifyStudentRole("Senior Software Engineer Intern", {
+        minimumExperienceYears: 8,
+      });
+      expect(result.verdict).toBe("ambiguous");
+      expect(result.reason).toContain("matches both");
+    });
+
+    it("should leave a rule-(c) reject as a seniority reject, not a years reject", () => {
+      const result = classifyStudentRole("University Relations Manager", {
+        minimumExperienceYears: 9,
+      });
+      expect(result.verdict).toBe("reject");
+      // Rule (c) fired on "manager"; the arbiter never ran.
+      expect(result.reason).toContain("manager");
+      expect(result.reason).not.toContain("9 years");
+    });
+  });
+
+  describe("omitting the argument reproduces title-only behavior", () => {
+    const representativeTitles = [
+      "Software Engineer Intern",
+      "Senior Software Engineer",
+      "Financial Data Analyst",
+      "Account Associate - SF",
+      "University Recruiter",
+      "Senior Intern",
+      "Software Engineer",
+      "Junior Software Engineer",
+    ];
+
+    for (const title of representativeTitles) {
+      it(`should give the same verdict for '${title}' with no second argument as with null`, () => {
+        const withoutArg = classifyStudentRole(title);
+        const withNull = classifyStudentRole(title, null);
+        const withNullYears = classifyStudentRole(title, {
+          minimumExperienceYears: null,
+        });
+
+        expect(withoutArg).toEqual(withNull);
+        expect(withoutArg).toEqual(withNullYears);
+      });
+    }
+
+    it("should still produce the documented title-only verdicts", () => {
+      expect(classifyStudentRole("Software Engineer Intern").verdict).toBe("keep");
+      expect(classifyStudentRole("Senior Software Engineer").verdict).toBe("reject");
+      expect(classifyStudentRole("Financial Data Analyst").verdict).toBe("ambiguous");
+      expect(classifyStudentRole("Senior Intern").verdict).toBe("ambiguous");
+      expect(classifyStudentRole("Software Engineer").verdict).toBe("reject");
+    });
+  });
+});

@@ -14,6 +14,7 @@
 
 import { EventEntityType, type PrismaClient } from "@prisma/client";
 import { classifyStudentRole } from "../jobs/classify";
+import { readStoredRequirements } from "../eligibility/stored";
 import type { Verdict } from "../jobs/filters";
 import { formatAlertBatch, type AlertableJob } from "./format";
 import type { AlertChannel } from "./channels";
@@ -71,13 +72,18 @@ export async function dispatchAlerts(
       location: true,
       canonicalUrl: true,
       firstSeenAt: true,
+      // Fetched so the classifier can settle a title it cannot settle alone.
+      // Without this an "Analyst" role demanding eight years would be alerted
+      // on as a possible student role, which is a notification that wastes the
+      // one thing alerts are supposed to protect: the reader's attention.
+      requirements: true,
       company: { select: { name: true } },
     },
   });
 
   const candidates: AlertableJob[] = [];
   for (const job of jobs) {
-    const verdict = classifyStudentRole(job.title).verdict;
+    const verdict = classifyStudentRole(job.title, readStoredRequirements(job.requirements)).verdict;
     if (!ALERT_VERDICTS.includes(verdict)) {
       result.notStudentRole += 1;
       continue;

@@ -14,6 +14,14 @@
  * See spec section 9: Student Role Classifier.
  */
 
+// The threshold for "how many years of experience can a posting demand and
+// still plausibly be a student role". Imported rather than written as a bare
+// 2 here so that this file and the eligibility engine can never drift apart:
+// if someone retunes the engine's idea of a student-sized job, this classifier
+// follows automatically. (engine.ts imports only ./requirements, which imports
+// nothing, so this does not create an import cycle.)
+import { DEFAULT_MAX_EXPERIENCE_YEARS } from "../eligibility/engine";
+
 /**
  * Classification result.
  * Guides whether a job should be kept, rejected, or escalated to AI analysis.
@@ -155,6 +163,34 @@ function hasTermWithBoundary(text: string, terms: string[]): boolean {
 }
 
 /**
+ * Return every term from a list that actually appears in the text, using the
+ * same whole-word rule as hasTermWithBoundary.
+ *
+ * hasTermWithBoundary answers "did anything match?"; this answers "which
+ * ones?", so a reason string can name the exact words that drove the verdict.
+ *
+ * @param text - String to search in (case-insensitive)
+ * @param terms - Array of terms to match against
+ * @returns The subset of terms that matched, in list order
+ */
+function matchedTerms(text: string, terms: string[]): string[] {
+  return terms.filter((term) => new RegExp(`\\b${term}\\b`, "i").test(text));
+}
+
+/**
+ * Evidence pulled from the body of a posting, used to second-guess a weak
+ * title signal. Optional everywhere: a caller that has only a title keeps the
+ * old behavior exactly.
+ */
+export interface PostingEvidence {
+  /**
+   * The smallest number of years of experience the posting demands, or null
+   * when the posting never said. null means "no evidence", NOT "zero years".
+   */
+  minimumExperienceYears: number | null;
+}
+
+/**
  * Classify a job title as suitable for students or not.
  *
  * This is a fast, heuristic-based filter that runs on every discovered job.
@@ -191,10 +227,57 @@ function hasTermWithBoundary(text: string, terms: string[]): boolean {
  * regardless of classifier verdict, so a wrongly-rejected title stays in
  * the database and can be re-classified later with an improved classifier.
  *
+ * JUDGMENT CALL — the years-of-experience arbiter on rule (d):
+ *
+ * "ambiguous" was never meant to be a final answer. It means "a title alone
+ * cannot settle this, so hand it to something that can look closer," and the
+ * plan was for that something to be an AI call. That AI call does not exist
+ * and never has. Meanwhile the alerting layer treats ambiguous as keep, so in
+ * practice rule (d) has been a second keep list — which is how a "Financial
+ * Data Analyst" wanting four years, and a "University Recruiter" wanting
+ * five, ended up in a student's job feed.
+ *
+ * The fix is not to shorten EARLY_CAREER_SIGNALS. "Investment Banking
+ * Analyst" and "Summer Associate" are real new-grad titles; dropping those
+ * words would hide genuine internships, and a hidden internship is the one
+ * mistake the candidate can never notice or undo. So the words stay and we
+ * give the verdict better evidence instead.
+ *
+ * A posting that demands more years of experience than a student could
+ * possibly have is direct, employer-written evidence that the title's student
+ * flavor was a coincidence — "analyst" is simply what that company calls the
+ * job, not a signal that they are hiring from campus. That is a real arbiter:
+ * cheap, deterministic, and grounded in what the posting itself says.
+ *
+ * Three limits keep this honest:
+ *
+ * 1. It applies to rule (d) ONLY. Rules (a) and (b) turn on an explicit
+ *    student keyword in the title — "Intern", "Co-op", "New Grad". A title
+ *    that says "Intern" is the employer stating the role is for students, and
+ *    that outranks anything the description says; long-experience language in
+ *    a body often belongs to a boilerplate block, a parent job family, or the
+ *    full-time role the internship converts into. So "Software Engineer
+ *    Intern" stays keep even if the body asks for eight years, and "Senior
+ *    Software Engineer Intern" stays ambiguous — a genuine contradiction is
+ *    still a contradiction, and still deserves a human look.
+ *
+ * 2. Silence is not evidence. minimumExperienceYears === null means the
+ *    posting never stated a number, which leaves the title exactly as
+ *    ambiguous as it was.
+ *
+ * 3. Only a demand ABOVE the threshold rejects. At or under it, the posting
+ *    is still plausibly open to a student, so the verdict is unchanged — an
+ *    entry-level role asking for "1-2 years" is not ruled out.
+ *
  * @param title - Job title string
+ * @param posting - Optional evidence from the posting body. Omit it (or pass
+ *   null) to get the historical title-only behavior, unchanged.
  * @returns Classification result with verdict and reasoning
  */
-export function classifyStudentRole(title: string): ClassificationResult {
+export function classifyStudentRole(
+  title: string,
+  posting?: PostingEvidence | null,
+): ClassificationResult {
   const matchesKeep = hasTermWithBoundary(title, KEEP_TERMS);
   const matchesReject = hasTermWithBoundary(title, REJECT_TERMS);
   const matchesEarlyCareer = hasTermWithBoundary(title, EARLY_CAREER_SIGNALS);
@@ -225,9 +308,32 @@ export function classifyStudentRole(title: string): ClassificationResult {
 
   // Rule (d): Early-career signal matches → ambiguous (narrow band worth AI call)
   if (matchesEarlyCareer) {
+    const signals = matchedTerms(title, EARLY_CAREER_SIGNALS);
+
+    // The arbiter described above. Note the ?? null: a caller may pass no
+    // posting at all, so treat a missing object and a missing number the same
+    // way — as no evidence.
+    const yearsDemanded = posting?.minimumExperienceYears ?? null;
+
+    if (yearsDemanded !== null && yearsDemanded > DEFAULT_MAX_EXPERIENCE_YEARS) {
+      // Say both halves out loud: the weak word we matched on, and the number
+      // that overrules it. Someone reading this verdict later should be able
+      // to check our work without reopening the posting.
+      const signalList = signals.map((s) => `"${s}"`).join(", ");
+      const signalPhrase =
+        signals.length === 1
+          ? `Title's only student signal is ${signalList}`
+          : `Title's only student signals are ${signalList}`;
+
+      return {
+        verdict: "reject",
+        reason: `${signalPhrase}, but the posting asks for ${yearsDemanded} years of experience — more than the ${DEFAULT_MAX_EXPERIENCE_YEARS} typical of a student role.`,
+      };
+    }
+
     return {
       verdict: "ambiguous",
-      reason: `Title contains early-career signal(s): ${EARLY_CAREER_SIGNALS.filter((t) => new RegExp(`\\b${t}\\b`, "i").test(title)).join(", ")}. Needs AI review to determine if this is a student-appropriate role.`,
+      reason: `Title contains early-career signal(s): ${signals.join(", ")}. Needs AI review to determine if this is a student-appropriate role.`,
     };
   }
 

@@ -76,7 +76,9 @@ export default async function JobDetailPage({ params, searchParams }: JobPagePro
     : null;
 
   const tracked = profile ? await findApplicationForJob(db, profile.id, job.id) : null;
-  const classification = classifyStudentRole(job.title);
+  // Same requirements the eligibility table above is built from, so the
+  // badge and the table can never disagree about what the posting demands.
+  const classification = classifyStudentRole(job.title, requirements);
   const description = toPlainText(job.description);
 
   // Spec §12 is explicit that only eligible jobs are scored: a fit percentage

@@ -14,6 +14,7 @@
  */
 
 import { classifyStudentRole } from "./classify";
+import { readStoredRequirements } from "../eligibility/stored";
 import { PAGE_SIZE, type Verdict } from "./filters";
 
 /**
@@ -31,6 +32,15 @@ export const MAX_SCAN = 5000;
 export interface ClassifiableJob {
   id: string;
   title: string;
+  /**
+   * The requirements extracted from the description at ingest, still in the
+   * JSON shape Prisma hands back. Optional: a row that has never been through
+   * extraction simply gets classified on its title alone, exactly as before.
+   *
+   * This is what lets the classifier settle a title it cannot settle by
+   * itself — see the arbiter in ./classify.
+   */
+  requirements?: unknown;
 }
 
 /** One job's verdict, kept alongside the id it belongs to. */
@@ -69,7 +79,12 @@ export interface JobPage {
 /** Run the title classifier over a batch of jobs. */
 export function classifyJobs(jobs: ClassifiableJob[]): ClassifiedJob[] {
   return jobs.map((job) => {
-    const result = classifyStudentRole(job.title);
+    // Pass the stored requirements along when the row has them. A title like
+    // "Financial Data Analyst" is genuinely undecidable on its own; a body
+    // that asks for four years of experience decides it.
+    const posting =
+      job.requirements === undefined ? null : readStoredRequirements(job.requirements);
+    const result = classifyStudentRole(job.title, posting);
     return { id: job.id, verdict: result.verdict, reason: result.reason };
   });
 }
