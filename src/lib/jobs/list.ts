@@ -25,8 +25,22 @@ import { PAGE_SIZE, type Verdict } from "./filters";
  * When the cap bites we say so on screen (`truncated`) instead of quietly
  * showing a partial answer, because a job count that is silently wrong is
  * worse than one labelled incomplete.
+ *
+ * The number is measured, not guessed. Over 17,232 real rows on this machine:
+ * fetching id+title+requirements took 129ms, classifying them all took 229ms,
+ * and running hard eligibility over them took 7ms — 365ms in total, about
+ * 0.021ms per row. At that rate 25,000 rows costs roughly half a second, which
+ * a dashboard can afford; a million would still take about twenty seconds,
+ * which is what the ceiling is here to prevent.
+ *
+ * It was 5,000, chosen before there was anything to measure against. That was
+ * fine at 3,600 postings and wrong the moment the registry grew to 84 boards:
+ * the cap bound on every request, so the default shortlist quietly became
+ * "the shortlist of the 5,000 newest postings" and an older internship fell
+ * out of view. Raise this again when the corpus approaches it — the notice on
+ * screen is the signal, and this comment is the measurement to redo.
  */
-export const MAX_SCAN = 5000;
+export const MAX_SCAN = 25000;
 
 /** The minimum a row needs for classification: an id and a title. */
 export interface ClassifiableJob {
