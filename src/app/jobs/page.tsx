@@ -16,6 +16,7 @@ import {
   ELIGIBILITY_FILTERS,
   parseJobFilters,
   PAGE_SIZE,
+  shortlistActive,
   VERDICTS,
   type EligibilityFilter,
   type JobFilters,
@@ -89,23 +90,67 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
     verdicts,
     eligibility,
     eligibilityCounts,
+    scanned,
   } = result;
-  const total = counts.keep + counts.ambiguous + counts.reject;
   const firstOnPage = matching === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const lastOnPage = Math.min(page * PAGE_SIZE, matching);
+
+  // Is the shortlist doing anything right now? The URL can ask for it and a
+  // chip can override it, so ask the one function that settles that.
+  const shortlisted = shortlistActive(filters);
+
+  // How many postings the shortlist is holding back. `matching` is what the
+  // table and the pager are showing; `scanned` is everything that got looked
+  // at. The gap is exactly the rejects and the ineligible.
+  const hidden = shortlisted ? scanned - matching : 0;
+
+  // Where "show everything" goes, and where "back to the shortlist" comes
+  // home to. Both keep the search box, company and date filters intact —
+  // turning the shortlist off should not also throw away what you typed.
+  const showEverythingHref = buildJobsHref(filters, { shortlist: false });
+  const shortlistHref = buildJobsHref(filters, {
+    shortlist: true,
+    verdict: null,
+    eligibility: null,
+  });
 
   return (
     <main className="page page-wide">
       <h1>Jobs</h1>
-      <p className="lede">
-        {total.toLocaleString()} discovered {total === 1 ? "posting" : "postings"}{" "}
-        match your filters, classified by title.
-      </p>
+
+      {/* The headline states the number actually on screen, and nothing else.
+          It used to add up every scanned row regardless of the filters, so it
+          could claim 1,429 postings while the pager underneath said 63 — and
+          a reader who believes the headline stops looking for the other 1,366.
+          `matching` is the same number the pager counts, so the two cannot
+          drift apart again. */}
+      {shortlisted ? (
+        <p className="lede">
+          {matching.toLocaleString()} {matching === 1 ? "posting" : "postings"} worth a
+          look.{" "}
+          {hidden > 0 ? (
+            <>
+              {hidden.toLocaleString()} rejected or ineligible{" "}
+              {hidden === 1 ? "posting is" : "postings are"} hidden —{" "}
+              <a href={showEverythingHref}>show everything</a>.
+            </>
+          ) : (
+            <>Nothing is being hidden — every posting scanned is here.</>
+          )}
+        </p>
+      ) : (
+        <p className="lede">
+          {matching.toLocaleString()} {matching === 1 ? "posting" : "postings"} match
+          your filters. The shortlist is off, so nothing is hidden beyond what the
+          filters and chips below say —{" "}
+          <a href={shortlistHref}>back to the shortlist</a>.
+        </p>
+      )}
 
       <FilterBar filters={filters} companies={companies} />
 
       <nav className="chips" aria-label="Filter by classifier verdict">
-        <VerdictChip filters={filters} verdict={null} label="All" count={total} />
+        <VerdictChip filters={filters} verdict={null} label="All" count={scanned} />
         {VERDICTS.map((verdict) => (
           <VerdictChip
             key={verdict}
@@ -120,7 +165,8 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       {eligibilityCounts === null ? (
         <p className="note">
           No eligibility check yet — <a href="/profile">fill in your profile</a> and
-          these jobs can be screened against spec §11&rsquo;s hard requirements.
+          these jobs can be screened against the hard requirements they state
+          (work authorization, graduation date, degree, years of experience).
         </p>
       ) : (
         <nav className="chips" aria-label="Filter by eligibility">
@@ -145,6 +191,18 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
           ))}
         </nav>
       )}
+
+      {/* Said once, under both chip rows, because the numbers on the chips are
+          the most misreadable thing on this page: they are a map of everything
+          discovered, not a count of what is in the table. Leaving that implicit
+          is how you end up with a chip saying 3,455 above a table of 165 and no
+          way for the reader to tell which number is lying. */}
+      <p className="note">
+        The counts on these chips cover all {scanned.toLocaleString()} scanned{" "}
+        {scanned === 1 ? "posting" : "postings"}, not the{" "}
+        {matching.toLocaleString()} listed below. Choosing one shows exactly that
+        group, rejects and all.
+      </p>
 
       {truncated ? (
         <div className="notice">
@@ -181,7 +239,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   );
 }
 
-/** One eligibility filter chip (spec §11). */
+/** One eligibility filter chip. */
 function EligibilityChip({
   filters,
   eligibility,
@@ -193,7 +251,14 @@ function EligibilityChip({
   label: string;
   count: number;
 }) {
-  const active = filters.eligibility === eligibility;
+  // The "Any" chip must not look selected while the shortlist is narrowing the
+  // table: a chip reading "Any 3,301" marked as current, above 150 rows, is the
+  // same contradiction the headline used to carry. With the shortlist on,
+  // nothing here is the operative filter — the shortlist is, and the headline
+  // says so — so no chip claims to be.
+  const active =
+    filters.eligibility === eligibility &&
+    !(eligibility === null && shortlistActive(filters));
   return (
     <a
       className={`chip${active ? " chip-active" : ""}`}
@@ -217,7 +282,10 @@ function VerdictChip({
   label: string;
   count: number;
 }) {
-  const active = filters.verdict === verdict;
+  // Same reasoning as EligibilityChip: "All" cannot be the current selection
+  // while the shortlist is hiding most of what it counts.
+  const active =
+    filters.verdict === verdict && !(verdict === null && shortlistActive(filters));
   return (
     <a
       className={`chip${active ? " chip-active" : ""}`}

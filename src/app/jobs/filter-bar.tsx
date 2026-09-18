@@ -124,6 +124,16 @@ export function FilterBar({ filters, companies }: FilterBarProps) {
         <input type="hidden" name="eligibility" value={filters.eligibility} />
       ) : null}
 
+      {/* And the same for "show everything". A GET form submits only the
+          fields it contains, so without this, pressing Apply would silently
+          switch the shortlist back on and make thousands of rows vanish — the
+          reader would blame whatever filter they just changed. Only needed
+          when no chip is set: a verdict or eligibility field above already
+          turns the shortlist off on its own. */}
+      {!filters.shortlist && !filters.verdict && !filters.eligibility ? (
+        <input type="hidden" name="all" value="1" />
+      ) : null}
+
         <div className="filter-actions">
           <button type="submit">Apply</button>
           <a href="/jobs">Reset</a>

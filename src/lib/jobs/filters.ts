@@ -51,6 +51,27 @@ export interface JobFilters {
   /** Only jobs the classifier gave this verdict. Applied in memory, not SQL. */
   verdict: Verdict | null;
   /**
+   * The default view: hide the postings that are not worth opening.
+   *
+   * Concretely it hides two groups — jobs the title classifier called
+   * "reject", and jobs that fail a hard requirement in your profile. What is
+   * left is everything the system currently believes you could actually apply
+   * to.
+   *
+   * This exists because `verdict` above can only hold ONE value, so "keep or
+   * ambiguous" — the pair you almost always want — was impossible to ask for.
+   * Without it the dashboard opened on page 1 of several thousand rejects and
+   * you had to know to click two separate chips to find the real list.
+   *
+   * On by default, and `?all=1` turns it off. It is also turned off by any
+   * explicit `verdict=` or `eligibility=` in the URL: otherwise clicking the
+   * "reject" chip would fight the shortlist over the same rows and show you
+   * an empty table. The page always says out loud how many postings the
+   * shortlist is hiding and links to the unfiltered view — a hidden job the
+   * reader never learns about is the one error they cannot discover.
+   */
+  shortlist: boolean;
+  /**
    * Show postings the scanner has seen disappear from their board.
    *
    * Off by default: a closed posting cannot be applied to, so listing it
@@ -114,28 +135,68 @@ export function parseJobFilters(raw: RawSearchParams): JobFilters {
     ? parsedDays
     : null;
 
+  // Read these two raw first, because whether they were PRESENT at all — not
+  // whether they were valid — decides the shortlist below.
+  const rawVerdict = firstValue(raw, "verdict");
+  const rawEligibility = firstValue(raw, "eligibility");
+
+  // The shortlist is on unless something asks for it to be off. Three things
+  // ask:
+  //   ?all=1              — the "show everything" link in the page headline
+  //   ?verdict=...        — a verdict chip
+  //   ?eligibility=...    — an eligibility chip
+  //
+  // The chips count as a request because they and the shortlist would
+  // otherwise both be narrowing the same rows: a reader clicking "reject"
+  // wants to see rejects, and a shortlist that hides rejects would answer
+  // with an empty table and no explanation.
+  //
+  // JUDGMENT CALL: a chip parameter turns the shortlist off even when its
+  // value is junk (`?verdict=banana` drops to "no verdict filter", but still
+  // turns the shortlist off). That errs toward showing MORE postings, which
+  // is the failure this file everywhere prefers — a filter that quietly shows
+  // fewer rows than you asked for can hide a job from you; one that shows
+  // more cannot.
+  const showEverything = ["1", "on", "true"].includes(firstValue(raw, "all") ?? "");
+  const shortlist = !showEverything && rawVerdict === null && rawEligibility === null;
+
   return {
     q: firstValue(raw, "q"),
     companyId: firstValue(raw, "company"),
     atsType: oneOf(firstValue(raw, "ats"), Object.values(DbAtsType)),
     remoteType: oneOf(firstValue(raw, "remote"), Object.values(DbRemoteType)),
     withinDays,
-    verdict: oneOf(firstValue(raw, "verdict"), VERDICTS),
+    verdict: oneOf(rawVerdict, VERDICTS),
+    shortlist,
     // A checkbox submits "on"; the pagination links write "1". Anything else
     // (including the parameter being absent) means the box was unchecked.
     includeClosed: ["1", "on", "true"].includes(firstValue(raw, "closed") ?? ""),
-    eligibility: oneOf(firstValue(raw, "eligibility"), ELIGIBILITY_FILTERS),
+    eligibility: oneOf(rawEligibility, ELIGIBILITY_FILTERS),
     page,
   };
 }
 
 /**
+ * Is the shortlist actually in force for this combination of filters?
+ *
+ * `parseJobFilters` can never hand back a `JobFilters` with both
+ * `shortlist: true` and a verdict or eligibility chip set — but code that
+ * builds a filter set by hand (a link that flips one field, a test) can. This
+ * is the single place that settles the contradiction, so the URL builder, the
+ * query and the page all answer it the same way.
+ */
+export function shortlistActive(filters: JobFilters): boolean {
+  return filters.shortlist && filters.verdict === null && filters.eligibility === null;
+}
+
+/**
  * Translate the filters into a Prisma `where` clause.
  *
- * Note what is NOT here: `verdict`. The classifier is TypeScript that reads a
- * job title (spec §9) and its verdict is not stored in any column, so it cannot
- * be part of an SQL query. It gets applied in memory instead — see
- * `src/lib/jobs/list.ts`.
+ * Note what is NOT here: `verdict`, `eligibility` and `shortlist`. The
+ * classifier is TypeScript that reads a job title (spec §9) and its verdict is
+ * not stored in any column; eligibility is computed against your profile. None
+ * of the three can be part of an SQL query, so they are applied in memory
+ * instead — see `src/lib/jobs/query.ts` and `src/lib/jobs/list.ts`.
  *
  * `now` is a parameter rather than a `new Date()` inside the function so tests
  * can pin the clock.
@@ -180,6 +241,11 @@ export function buildJobWhere(filters: JobFilters, now: Date): Prisma.JobWhereIn
  *
  * Changing any filter other than the page resets you to page 1 — staying on
  * page 7 of a result set you just narrowed to 12 rows shows an empty screen.
+ *
+ * The shortlist round-trips through here too, which is what makes the chips
+ * and the "show everything" link agree: pass `{ shortlist: false }` to get the
+ * `?all=1` URL, or `{ shortlist: true, verdict: null, eligibility: null }` to
+ * get back to the plain `/jobs` shortlist.
  */
 export function buildJobsHref(
   filters: JobFilters,
@@ -202,6 +268,14 @@ export function buildJobsHref(
   if (merged.verdict) params.set("verdict", merged.verdict);
   if (merged.includeClosed) params.set("closed", "1");
   if (merged.eligibility) params.set("eligibility", merged.eligibility);
+  // The shortlist is the default, so it is written into the URL only when it
+  // is OFF. And it only needs writing when nothing else already implies it:
+  // a `verdict=` or `eligibility=` in the URL turns the shortlist off on its
+  // own (see parseJobFilters), so adding `all=1` alongside one would be noise
+  // that says nothing new.
+  if (!shortlistActive(merged) && !merged.verdict && !merged.eligibility) {
+    params.set("all", "1");
+  }
   if (merged.page > 1) params.set("page", String(merged.page));
 
   const query = params.toString();

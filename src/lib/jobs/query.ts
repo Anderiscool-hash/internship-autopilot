@@ -17,8 +17,20 @@
 
 import type { PrismaClient } from "@prisma/client";
 import { AtsType as DbAtsType, JobStatus, RemoteType as DbRemoteType } from "@prisma/client";
-import { buildJobWhere, type EligibilityFilter, type JobFilters } from "./filters";
-import { buildJobPage, orderByIds, MAX_SCAN, type JobPage } from "./list";
+import {
+  buildJobWhere,
+  shortlistActive,
+  type EligibilityFilter,
+  type JobFilters,
+} from "./filters";
+import {
+  buildJobPage,
+  classifyJobs,
+  countVerdicts,
+  orderByIds,
+  MAX_SCAN,
+  type JobPage,
+} from "./list";
 import { NO_REQUIREMENTS } from "../eligibility/requirements";
 import { getProfile } from "../candidate/store";
 import { checkEligibility, type EligibilityProfile } from "../eligibility/engine";
@@ -73,6 +85,17 @@ export interface JobListResult extends Omit<JobPage, "ids"> {
    */
   eligibility: Map<string, EligibilityFilter> | null;
   eligibilityCounts: EligibilityCounts | null;
+  /**
+   * How many postings were looked at in total for this request.
+   *
+   * This is the number the verdict and eligibility chips add up to: every row
+   * matching the SQL filters (company, date window, search text), before the
+   * shortlist or any chip narrowed it. `matching` is the smaller number — the
+   * rows actually listed. The page must never present `scanned` as the size of
+   * what you are reading; the two disagreeing was the bug that made the old
+   * headline say 1,429 while the table showed 63.
+   */
+  scanned: number;
 }
 
 /**
@@ -116,10 +139,36 @@ export async function listJobs(
     : null;
   const eligibilityCounts = eligibility ? countEligibility(eligibility) : null;
 
-  const filtered =
-    eligibility && filters.eligibility
-      ? capped.filter((job) => eligibility.get(job.id) === filters.eligibility)
-      : capped;
+  // Classify the whole scanned set once, up front.
+  //
+  // Two different questions need the answer, and they need it over different
+  // sets. The chips ask "how many of EVERYTHING scanned is a reject?" — they
+  // are navigation, so their counts have to stay put no matter what is
+  // currently selected. The shortlist asks "is THIS row a reject?" so it can
+  // drop it. Doing the classification here, before any narrowing, lets the
+  // counts below describe the full scan while the filtering still works
+  // row-by-row.
+  const classified = classifyJobs(capped);
+  const scannedCounts = countVerdicts(classified);
+  const verdicts = new Map(classified.map((job) => [job.id, job]));
+
+  // The shortlist (see filters.ts) drops two groups: postings the title
+  // classifier rejected, and postings a hard requirement in the profile rules
+  // out. Note the `?.` on eligibility — with no profile saved there are no
+  // eligibility verdicts at all, and "we have not checked" must not be treated
+  // as "ineligible". Those rows stay.
+  const hideUnworkable = shortlistActive(filters);
+
+  const filtered = capped.filter((job) => {
+    if (eligibility && filters.eligibility) {
+      if (eligibility.get(job.id) !== filters.eligibility) return false;
+    }
+    if (hideUnworkable) {
+      if (verdicts.get(job.id)?.verdict === "reject") return false;
+      if (eligibility?.get(job.id) === "ineligible") return false;
+    }
+    return true;
+  });
 
   const page = buildJobPage(filtered, filters.verdict, filters.page, { truncated });
 
@@ -173,12 +222,25 @@ export async function listJobs(
         : null,
   }));
 
-  const { ids: _ids, ...pageMeta } = page;
+  // `buildJobPage` also returns counts and verdicts, but it only saw the rows
+  // that survived the narrowing above, so its totals would shrink every time a
+  // chip was clicked — a chip whose count changes when you click it is useless
+  // for navigating. The full-scan versions computed earlier replace them.
+  const {
+    ids: _ids,
+    counts: _narrowedCounts,
+    verdicts: _narrowedVerdicts,
+    ...pageMeta
+  } = page;
+
   return {
     ...pageMeta,
+    counts: scannedCounts,
+    verdicts,
     rows: orderByIds(flattened, page.ids),
     eligibility,
     eligibilityCounts,
+    scanned: capped.length,
   };
 }
 

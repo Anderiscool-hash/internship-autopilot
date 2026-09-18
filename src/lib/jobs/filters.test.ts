@@ -9,7 +9,13 @@
 
 import { describe, it, expect } from "vitest";
 import { AtsType, JobStatus, RemoteType } from "@prisma/client";
-import { parseJobFilters, buildJobWhere, buildJobsHref, type JobFilters } from "./filters";
+import {
+  parseJobFilters,
+  buildJobWhere,
+  buildJobsHref,
+  shortlistActive,
+  type JobFilters,
+} from "./filters";
 
 /** A no-filters baseline, so each test can change just the field it cares about. */
 const EMPTY: JobFilters = {
@@ -19,6 +25,8 @@ const EMPTY: JobFilters = {
   remoteType: null,
   withinDays: null,
   verdict: null,
+  // The shortlist is the default view, so the "no filters" baseline has it on.
+  shortlist: true,
   includeClosed: false,
   eligibility: null,
   page: 1,
@@ -47,6 +55,9 @@ describe("parseJobFilters", () => {
       remoteType: RemoteType.REMOTE,
       withinDays: 7,
       verdict: "keep",
+      // An explicit verdict= in the URL turns the shortlist off, so the chip
+      // and the shortlist cannot both be narrowing the same rows.
+      shortlist: false,
       includeClosed: false,
       eligibility: null,
       page: 3,
@@ -175,5 +186,142 @@ describe("buildJobsHref", () => {
     expect(buildJobsHref({ ...EMPTY, q: "data science & ml" })).toBe(
       "/jobs?q=data+science+%26+ml",
     );
+  });
+});
+
+/**
+ * The shortlist: the default view that hides rejects and ineligible postings.
+ *
+ * What these tests are really protecting is that the shortlist and the filter
+ * chips can never both be narrowing the same rows. If they could, clicking
+ * "reject" would show an empty table — the chip asking for rejects and the
+ * shortlist throwing them away — and the reader would have no way to tell
+ * that the two had cancelled each other out.
+ */
+describe("the shortlist", () => {
+  it("is on by default, so /jobs opens on postings worth reading", () => {
+    expect(parseJobFilters({}).shortlist).toBe(true);
+    expect(shortlistActive(parseJobFilters({}))).toBe(true);
+  });
+
+  it("is turned off by ?all=1", () => {
+    expect(parseJobFilters({ all: "1" }).shortlist).toBe(false);
+    expect(parseJobFilters({ all: "on" }).shortlist).toBe(false);
+    expect(parseJobFilters({ all: "true" }).shortlist).toBe(false);
+  });
+
+  it("ignores an ?all= value that means nothing", () => {
+    expect(parseJobFilters({ all: "banana" }).shortlist).toBe(true);
+    expect(parseJobFilters({ all: "0" }).shortlist).toBe(true);
+    expect(parseJobFilters({ all: "" }).shortlist).toBe(true);
+  });
+
+  it("is turned off by an explicit verdict, so the reject chip shows rejects", () => {
+    const filters = parseJobFilters({ verdict: "reject" });
+    expect(filters.verdict).toBe("reject");
+    expect(filters.shortlist).toBe(false);
+    expect(shortlistActive(filters)).toBe(false);
+  });
+
+  it("is turned off by an explicit eligibility, for the same reason", () => {
+    const filters = parseJobFilters({ eligibility: "ineligible" });
+    expect(filters.eligibility).toBe("ineligible");
+    expect(filters.shortlist).toBe(false);
+    expect(shortlistActive(filters)).toBe(false);
+  });
+
+  it("is turned off even by a chip value that turned out to be junk", () => {
+    // ?verdict=banana is not a verdict, so no verdict filter is applied — but
+    // the shortlist still steps aside. Erring toward showing MORE postings is
+    // the only safe direction: a view that shows extra rows cannot hide a job
+    // from you, and a view that shows fewer can.
+    const filters = parseJobFilters({ verdict: "banana" });
+    expect(filters.verdict).toBeNull();
+    expect(filters.shortlist).toBe(false);
+    expect(parseJobFilters({ eligibility: "banana" }).shortlist).toBe(false);
+  });
+
+  it("stays on when a chip parameter is present but empty", () => {
+    // `?verdict=` is what an unset form field looks like, not a request.
+    expect(parseJobFilters({ verdict: "" }).shortlist).toBe(true);
+    expect(parseJobFilters({ eligibility: "   " }).shortlist).toBe(true);
+  });
+
+  it("never claims to be active while a chip is set", () => {
+    // A hand-built filter set can hold this contradiction; shortlistActive is
+    // the one place that settles it, so every caller resolves it the same way.
+    expect(shortlistActive({ ...EMPTY, shortlist: true, verdict: "keep" })).toBe(false);
+    expect(
+      shortlistActive({ ...EMPTY, shortlist: true, eligibility: "eligible" }),
+    ).toBe(false);
+  });
+});
+
+describe("buildJobsHref and the shortlist", () => {
+  it("writes nothing for the default on state", () => {
+    expect(buildJobsHref(EMPTY)).toBe("/jobs");
+  });
+
+  it("writes ?all=1 when the shortlist is off", () => {
+    expect(buildJobsHref({ ...EMPTY, shortlist: false })).toBe("/jobs?all=1");
+  });
+
+  it("round-trips through parse in both directions", () => {
+    const off = parseJobFilters({ all: "1" });
+    expect(buildJobsHref(off)).toBe("/jobs?all=1");
+    expect(parseJobFilters({ all: "1" }).shortlist).toBe(false);
+
+    const backOn = buildJobsHref(off, {
+      shortlist: true,
+      verdict: null,
+      eligibility: null,
+    });
+    expect(backOn).toBe("/jobs");
+    expect(parseJobFilters({}).shortlist).toBe(true);
+  });
+
+  it("gives the headline's show-everything link, keeping the other filters", () => {
+    const filters = parseJobFilters({ q: "intern", days: "7", page: "4" });
+    expect(buildJobsHref(filters, { shortlist: false })).toBe(
+      "/jobs?q=intern&days=7&all=1",
+    );
+  });
+
+  it("gives a back-to-the-shortlist link from a verdict chip view", () => {
+    const filters = parseJobFilters({ q: "intern", verdict: "reject" });
+    expect(
+      buildJobsHref(filters, { shortlist: true, verdict: null, eligibility: null }),
+    ).toBe("/jobs?q=intern");
+  });
+
+  it("does not add ?all=1 alongside a chip that already implies it", () => {
+    // Belt and braces in the URL would be noise: parseJobFilters already reads
+    // verdict= as "shortlist off".
+    expect(buildJobsHref(EMPTY, { verdict: "reject" })).toBe("/jobs?verdict=reject");
+    expect(buildJobsHref(EMPTY, { eligibility: "ineligible" })).toBe(
+      "/jobs?eligibility=ineligible",
+    );
+    expect(buildJobsHref({ ...EMPTY, shortlist: false }, { verdict: "keep" })).toBe(
+      "/jobs?verdict=keep",
+    );
+  });
+
+  it("keeps the shortlist off across pagination", () => {
+    const filters = parseJobFilters({ all: "1", page: "2" });
+    expect(buildJobsHref(filters, { page: 3 })).toBe("/jobs?all=1&page=3");
+    expect(parseJobFilters({ all: "1", page: "3" }).shortlist).toBe(false);
+  });
+
+  it("keeps the shortlist on across pagination", () => {
+    expect(buildJobsHref(EMPTY, { page: 2 })).toBe("/jobs?page=2");
+    expect(parseJobFilters({ page: "2" }).shortlist).toBe(true);
+  });
+
+  it("returns to the shortlist when a verdict chip is cleared from a chip view", () => {
+    // Clicking "All" from ?verdict=keep: the shortlist was off, and it stays
+    // off, because the reader asked to see everything and never asked to go
+    // back. ?all=1 now has to carry that, since verdict= no longer does.
+    const filters = parseJobFilters({ verdict: "keep" });
+    expect(buildJobsHref(filters, { verdict: null })).toBe("/jobs?all=1");
   });
 });
