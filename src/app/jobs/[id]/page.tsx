@@ -98,10 +98,14 @@ export default async function JobDetailPage({ params, searchParams }: JobPagePro
       )
     : null;
 
+  // Three different situations reach the fit panel without a number, and the
+  // reader can only act on the difference between them.
   const noFitReason =
     profile === null
       ? "No fit score yet — fill in your profile and this becomes a real number."
-      : "Not scored: this job fails a hard requirement above, and spec §12 only scores jobs you are eligible for.";
+      : fit === null
+        ? "Not scored: this job fails a hard requirement above, and only jobs you are eligible for get scored."
+        : "";
 
   return (
     <main className="page">

@@ -142,8 +142,16 @@ export function decideAutoApply(
   // An unknown value cannot clear a threshold. It is not a block — the
   // information may simply not have been computed yet — but it can never be
   // an automatic yes.
-  if (context.fitScore === null && rules.minimumFitScore > 0) {
-    review.push("No fit score was computed, so your minimum cannot be checked.");
+  //
+  // This deliberately does NOT depend on minimumFitScore being set. A missing
+  // score used to be near-impossible, so gating this on "the user asked for a
+  // minimum" looked harmless; now that fit scoring refuses to publish a number
+  // it cannot stand behind (see MIN_COVERAGE in ../fit/score), a null arrives
+  // on real jobs, and with the default minimum of 0 that would have let an
+  // unscored job apply itself. Unknown always stops and asks — the same rule
+  // the confidence check below has always followed.
+  if (context.fitScore === null) {
+    review.push("No fit score was computed, so this cannot be judged automatically.");
   }
   if (context.applicationConfidence === null) {
     review.push("The form has not been parsed yet, so confidence is unknown.");

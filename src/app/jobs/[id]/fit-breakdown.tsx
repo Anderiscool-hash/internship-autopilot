@@ -32,18 +32,39 @@ export function FitBreakdown({
     <section>
       <h2>Fit</h2>
 
-      {fit === null || fit.score === null ? (
+      {fit === null ? (
         <p className="note">{reason}</p>
       ) : (
         <>
-          <p className="fit-headline">FIT SCORE: {fit.score}%</p>
-          <p className="note">
-            Computed by rule, not by a model — every line below is a number this
-            app can show you the arithmetic for. Scored on{" "}
-            {Math.round(fit.coverage * 100)}% of spec §12&rsquo;s weights;
-            components neither the posting nor your profile said enough about are
-            skipped rather than counted as zero.
-          </p>
+          {/*
+            A missing score is not a missing answer. The breakdown below is
+            what explains WHY there is no number, so it renders either way —
+            the reader can see which rows say "skipped" and go fill those
+            gaps in. Hiding the table here would leave them with a dash and
+            no way to act on it.
+          */}
+          {fit.score === null ? (
+            <>
+              <p className="fit-headline">FIT SCORE: not enough to judge</p>
+              <p className="note">
+                {reason} Too little of your profile could be compared against
+                this posting to stand behind a percentage — only{" "}
+                {Math.round(fit.coverage * 100)}% of the weights below were
+                scored. The skipped rows are the ones to fill in.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="fit-headline">FIT SCORE: {fit.score}%</p>
+              <p className="note">
+                Computed by rule, not by a model — every line below is a number
+                this app can show you the arithmetic for. Scored on{" "}
+                {Math.round(fit.coverage * 100)}% of the weights; components
+                neither the posting nor your profile said enough about are
+                skipped rather than counted as zero.
+              </p>
+            </>
+          )}
 
           <div
             className="table-scroll"

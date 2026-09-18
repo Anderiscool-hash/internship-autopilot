@@ -48,7 +48,7 @@ function fitAbsenceReason(
   if (eligibility.get(jobId) === "ineligible") {
     return "Not scored — this job fails a hard requirement.";
   }
-  return "Nothing in your profile could be compared against this posting.";
+  return "Too little of your profile could be compared against this posting to score it.";
 }
 
 export function JobTable({ rows, verdicts, eligibility, now }: JobTableProps) {

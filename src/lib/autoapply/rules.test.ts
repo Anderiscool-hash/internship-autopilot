@@ -160,7 +160,7 @@ describe("decideAutoApply", () => {
     expect(decision.verdict).toBe("review");
   });
 
-  it("asks when an unknown fit score cannot clear a real minimum", () => {
+  it("asks whenever the fit score is unknown, minimum set or not", () => {
     const withMinimum = decideAutoApply(
       rules({ minimumFitScore: 80 }),
       context({ fitScore: null }),
@@ -168,13 +168,19 @@ describe("decideAutoApply", () => {
     );
     expect(withMinimum.verdict).toBe("review");
 
-    // With no minimum set there is nothing for the missing score to fail.
+    // This used to return "auto": with no minimum set there was supposedly
+    // nothing for a missing score to fail. That reasoning only held while a
+    // missing score was near-impossible. Fit scoring now withholds a number
+    // whenever too little of the profile could be compared, so "unknown"
+    // reaches this gate on ordinary jobs — and the default minimum is 0.
+    // An unjudged job must never apply to itself.
     const withoutMinimum = decideAutoApply(
       rules({ minimumFitScore: 0 }),
       context({ fitScore: null }),
       NOW,
     );
-    expect(withoutMinimum.verdict).toBe("auto");
+    expect(withoutMinimum.verdict).toBe("review");
+    expect(withoutMinimum.reasons.join(" ")).toContain("fit score");
   });
 
   it("routes a review-mode ATS to review even when everything else passes", () => {
