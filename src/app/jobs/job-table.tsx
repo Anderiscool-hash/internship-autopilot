@@ -13,7 +13,13 @@
  */
 
 import { JobStatus } from "@prisma/client";
-import type { EligibilityFilter } from "@/lib/jobs/filters";
+import {
+  buildJobsHref,
+  nextSortDirection,
+  type EligibilityFilter,
+  type JobFilters,
+  type SortKey,
+} from "@/lib/jobs/filters";
 import type { ClassifiedJob } from "@/lib/jobs/list";
 import type { JobListRow } from "@/lib/jobs/query";
 import { formatAge, formatEnum, formatLocation, formatSalary } from "./format";
@@ -23,7 +29,72 @@ interface JobTableProps {
   verdicts: Map<string, ClassifiedJob>;
   /** Hard-eligibility verdicts, or null when there is no profile to check against. */
   eligibility: Map<string, EligibilityFilter> | null;
+  /**
+   * The filters this table is showing, so each header can build the URL that
+   * sorts by it while keeping everything else the reader already chose.
+   */
+  filters: JobFilters;
   now: Date;
+}
+
+/**
+ * A column header you can click to sort by.
+ *
+ * It is a real link, not a button with a click handler, for two reasons. The
+ * dashboard has no client-side JavaScript at all — the whole page is server
+ * rendered — so a link is the only thing that can work. And a link is
+ * keyboard reachable, focusable and openable in a new tab for free, which a
+ * clickable `<th>` would have to reimplement badly.
+ *
+ * The direction is shown with an arrow character rather than a colour: this
+ * design system spends colour on meaning (a verdict, an eligibility badge),
+ * and a reader who cannot distinguish the colours would be left with a header
+ * that looks identical whichever way it is sorted.
+ */
+function SortHeader({
+  filters,
+  column,
+  label,
+  className,
+}: {
+  filters: JobFilters;
+  column: SortKey;
+  label: string;
+  className: string;
+}) {
+  const active = filters.sort === column;
+  // Clicking the column you are on flips it; clicking a new one starts it the
+  // way that column is normally wanted (see nextSortDirection).
+  const href = buildJobsHref(filters, {
+    sort: column,
+    dir: nextSortDirection(filters, column),
+  });
+
+  return (
+    <th
+      scope="col"
+      className={className}
+      // Screen readers announce this; it is the non-visual half of the arrow.
+      aria-sort={active ? (filters.dir === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <a
+        className={`col-sort${active ? " col-sort-active" : ""}`}
+        href={href}
+        title={
+          active
+            ? `Sorted by ${label.toLowerCase()}, ${filters.dir === "asc" ? "ascending" : "descending"}. Click to reverse.`
+            : `Sort by ${label.toLowerCase()}.`
+        }
+      >
+        {label}
+        {/* aria-hidden because aria-sort on the <th> already says this, and
+            hearing "up arrow" read out after every header is noise. */}
+        <span className="sort-arrow" aria-hidden="true">
+          {active ? (filters.dir === "asc" ? "↑" : "↓") : ""}
+        </span>
+      </a>
+    </th>
+  );
 }
 
 /** What each eligibility verdict should say in a badge, and why. */
@@ -51,7 +122,7 @@ function fitAbsenceReason(
   return "Too little of your profile could be compared against this posting to score it.";
 }
 
-export function JobTable({ rows, verdicts, eligibility, now }: JobTableProps) {
+export function JobTable({ rows, verdicts, eligibility, filters, now }: JobTableProps) {
   // With no profile there is no fit score for any row, so the column is a
   // stripe of em dashes taking width from the columns that say something.
   const showFit = eligibility !== null;
@@ -74,32 +145,49 @@ export function JobTable({ rows, verdicts, eligibility, now }: JobTableProps) {
             {/* Columns carry a class rather than relying on their position:
                 hiding Fit used to shift every index after it, so the widths and
                 the narrow-screen rules silently applied to the wrong columns. */}
-            <th scope="col" className="col-role">
-              Role
-            </th>
+            <SortHeader
+              filters={filters}
+              column="title"
+              label="Role"
+              className="col-role"
+            />
             {showFit ? (
-              <th scope="col" className="col-fit">
-                Fit
-              </th>
+              <SortHeader
+                filters={filters}
+                column="fit"
+                label="Fit"
+                className="col-fit"
+              />
             ) : null}
-            <th scope="col" className="col-company">
-              Company
-            </th>
-            <th scope="col" className="col-location">
-              Location
-            </th>
+            <SortHeader
+              filters={filters}
+              column="company"
+              label="Company"
+              className="col-company"
+            />
+            <SortHeader
+              filters={filters}
+              column="location"
+              label="Location"
+              className="col-location"
+            />
+            {/* Remote and Source stay plain headers. Both hold a handful of
+                fixed values that the filter bar above already lets you pick
+                exactly, so sorting by them would only group rows you could
+                have asked for outright. */}
             <th scope="col" className="col-remote">
               Remote
             </th>
-            <th scope="col" className="col-pay">
-              Pay
-            </th>
+            <SortHeader filters={filters} column="pay" label="Pay" className="col-pay" />
             <th scope="col" className="col-source">
               Source
             </th>
-            <th scope="col" className="col-seen">
-              First seen
-            </th>
+            <SortHeader
+              filters={filters}
+              column="seen"
+              label="First seen"
+              className="col-seen"
+            />
           </tr>
         </thead>
         <tbody>

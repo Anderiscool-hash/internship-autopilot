@@ -13,7 +13,12 @@ import {
   parseJobFilters,
   buildJobWhere,
   buildJobsHref,
+  nextSortDirection,
   shortlistActive,
+  DEFAULT_SORT,
+  DEFAULT_SORT_DIRECTION,
+  SORT_DEFAULT_DIRECTION,
+  SORT_KEYS,
   type JobFilters,
 } from "./filters";
 
@@ -29,6 +34,10 @@ const EMPTY: JobFilters = {
   shortlist: true,
   includeClosed: false,
   eligibility: null,
+  // The table's default order: newest first, exactly as it was before column
+  // sorting existed.
+  sort: "seen",
+  dir: "desc",
   page: 1,
 };
 
@@ -60,6 +69,8 @@ describe("parseJobFilters", () => {
       shortlist: false,
       includeClosed: false,
       eligibility: null,
+      sort: "seen",
+      dir: "desc",
       page: 3,
     });
   });
@@ -323,5 +334,187 @@ describe("buildJobsHref and the shortlist", () => {
     // back. ?all=1 now has to carry that, since verdict= no longer does.
     const filters = parseJobFilters({ verdict: "keep" });
     expect(buildJobsHref(filters, { verdict: null })).toBe("/jobs?all=1");
+  });
+});
+
+describe("parseJobFilters and sorting", () => {
+  it("defaults to newest first when nothing asks for a sort", () => {
+    const filters = parseJobFilters({});
+    expect(filters.sort).toBe("seen");
+    expect(filters.dir).toBe("desc");
+    // Belt and braces: the default in the URL parser and the exported default
+    // must be the same thing, or a "reset to default" link would not reset.
+    expect(filters.sort).toBe(DEFAULT_SORT);
+    expect(filters.dir).toBe(DEFAULT_SORT_DIRECTION);
+  });
+
+  it("reads every sort column the table offers", () => {
+    for (const key of SORT_KEYS) {
+      expect(parseJobFilters({ sort: key }).sort).toBe(key);
+    }
+  });
+
+  it("reads an explicit direction", () => {
+    expect(parseJobFilters({ sort: "title", dir: "desc" }).dir).toBe("desc");
+    expect(parseJobFilters({ sort: "pay", dir: "asc" }).dir).toBe("asc");
+  });
+
+  it("gives a column with no direction the direction it naturally starts in", () => {
+    // Text reads A-Z; numbers and dates are asked for top-first.
+    expect(parseJobFilters({ sort: "title" }).dir).toBe("asc");
+    expect(parseJobFilters({ sort: "company" }).dir).toBe("asc");
+    expect(parseJobFilters({ sort: "location" }).dir).toBe("asc");
+    expect(parseJobFilters({ sort: "pay" }).dir).toBe("desc");
+    expect(parseJobFilters({ sort: "fit" }).dir).toBe("desc");
+    expect(parseJobFilters({ sort: "seen" }).dir).toBe("desc");
+  });
+
+  it("falls back to the default for a sort column that does not exist", () => {
+    // The whole point: junk in the URL is not an error page, it is the view
+    // the reader would have got anyway.
+    const filters = parseJobFilters({ sort: "banana" });
+    expect(filters.sort).toBe("seen");
+    expect(filters.dir).toBe("desc");
+  });
+
+  it("falls back to the column's own default for a junk direction", () => {
+    expect(parseJobFilters({ sort: "title", dir: "sideways" }).dir).toBe("asc");
+    expect(parseJobFilters({ sort: "pay", dir: "" }).dir).toBe("desc");
+  });
+
+  it("ignores a direction with no column, rather than inventing a column", () => {
+    const filters = parseJobFilters({ dir: "asc" });
+    expect(filters.sort).toBe("seen");
+    // The direction itself is still honoured — "oldest first" is a real thing
+    // to want, and it is the only meaning `?dir=asc` alone can have.
+    expect(filters.dir).toBe("asc");
+  });
+
+  it("keeps the sort alongside every other filter", () => {
+    const filters = parseJobFilters({
+      q: "intern",
+      company: "cmp_1",
+      days: "7",
+      sort: "pay",
+      dir: "asc",
+      page: "2",
+    });
+    expect(filters.q).toBe("intern");
+    expect(filters.companyId).toBe("cmp_1");
+    expect(filters.withinDays).toBe(7);
+    expect(filters.sort).toBe("pay");
+    expect(filters.dir).toBe("asc");
+    expect(filters.page).toBe(2);
+  });
+});
+
+describe("nextSortDirection", () => {
+  it("starts a new column at the direction that column is usually wanted in", () => {
+    for (const key of SORT_KEYS) {
+      // EMPTY is sorted by "seen", so every other column here is a fresh one.
+      if (key === "seen") continue;
+      expect(nextSortDirection(EMPTY, key)).toBe(SORT_DEFAULT_DIRECTION[key]);
+    }
+  });
+
+  it("flips the column that is already sorted", () => {
+    const byTitle: JobFilters = { ...EMPTY, sort: "title", dir: "asc" };
+    expect(nextSortDirection(byTitle, "title")).toBe("desc");
+    expect(nextSortDirection({ ...byTitle, dir: "desc" }, "title")).toBe("asc");
+  });
+
+  it("flips the default column too", () => {
+    expect(nextSortDirection(EMPTY, "seen")).toBe("asc");
+  });
+});
+
+describe("buildJobsHref and sorting", () => {
+  it("writes nothing for the default sort", () => {
+    expect(buildJobsHref(EMPTY, { sort: "seen", dir: "desc" })).toBe("/jobs");
+  });
+
+  it("writes the column but not a direction it already implies", () => {
+    // `?sort=title` already means ascending, so `&dir=asc` would be noise.
+    expect(buildJobsHref(EMPTY, { sort: "title", dir: "asc" })).toBe("/jobs?sort=title");
+    expect(buildJobsHref(EMPTY, { sort: "pay", dir: "desc" })).toBe("/jobs?sort=pay");
+  });
+
+  it("writes the direction when it is not the one the column implies", () => {
+    expect(buildJobsHref(EMPTY, { sort: "title", dir: "desc" })).toBe(
+      "/jobs?sort=title&dir=desc",
+    );
+    expect(buildJobsHref(EMPTY, { sort: "pay", dir: "asc" })).toBe(
+      "/jobs?sort=pay&dir=asc",
+    );
+    // The default column reversed needs no `sort=`, only the direction.
+    expect(buildJobsHref(EMPTY, { sort: "seen", dir: "asc" })).toBe("/jobs?dir=asc");
+  });
+
+  it("round-trips every column and direction through the URL", () => {
+    for (const key of SORT_KEYS) {
+      for (const dir of ["asc", "desc"] as const) {
+        const href = buildJobsHref(EMPTY, { sort: key, dir });
+        const query = href.includes("?") ? href.slice(href.indexOf("?") + 1) : "";
+        const raw = Object.fromEntries(new URLSearchParams(query));
+        const reparsed = parseJobFilters(raw);
+        expect({ sort: reparsed.sort, dir: reparsed.dir }).toEqual({ sort: key, dir });
+      }
+    }
+  });
+
+  it("keeps the sort when only the page changes", () => {
+    const sorted: JobFilters = { ...EMPTY, sort: "title", dir: "asc" };
+    expect(buildJobsHref(sorted, { page: 2 })).toBe("/jobs?sort=title&page=2");
+  });
+
+  it("keeps the sort when a filter changes", () => {
+    const sorted: JobFilters = { ...EMPTY, sort: "pay", dir: "asc" };
+    expect(buildJobsHref(sorted, { q: "intern" })).toBe(
+      "/jobs?q=intern&sort=pay&dir=asc",
+    );
+  });
+
+  it("carries the sort through the shortlist and the chips", () => {
+    const sorted: JobFilters = { ...EMPTY, sort: "company", dir: "asc" };
+    expect(buildJobsHref(sorted, { shortlist: false })).toBe(
+      "/jobs?all=1&sort=company",
+    );
+    expect(buildJobsHref(sorted, { verdict: "reject" })).toBe(
+      "/jobs?verdict=reject&sort=company",
+    );
+    expect(buildJobsHref(sorted, { eligibility: "eligible" })).toBe(
+      "/jobs?eligibility=eligible&sort=company",
+    );
+  });
+
+  it("carries the sort alongside every other filter at once", () => {
+    const filters: JobFilters = {
+      ...EMPTY,
+      q: "intern",
+      companyId: "cmp_1",
+      withinDays: 7,
+      includeClosed: true,
+      shortlist: false,
+      sort: "pay",
+      dir: "asc",
+    };
+    expect(buildJobsHref(filters)).toBe(
+      "/jobs?q=intern&company=cmp_1&days=7&closed=1&all=1&sort=pay&dir=asc",
+    );
+  });
+
+  it("sends you back to page 1 when the sort changes", () => {
+    // Page 7 of the old order has nothing to do with page 7 of the new one,
+    // and a reader who reorders a list is asking to see the top of it.
+    const onPage7: JobFilters = { ...EMPTY, page: 7 };
+    expect(buildJobsHref(onPage7, { sort: "title", dir: "asc" })).toBe(
+      "/jobs?sort=title",
+    );
+    expect(buildJobsHref(onPage7, { sort: "seen", dir: "asc" })).toBe("/jobs?dir=asc");
+  });
+
+  it("sends you back to page 1 when only the direction flips", () => {
+    const onPage3: JobFilters = { ...EMPTY, sort: "title", dir: "asc", page: 3 };
+    expect(buildJobsHref(onPage3, { dir: "desc" })).toBe("/jobs?sort=title&dir=desc");
   });
 });

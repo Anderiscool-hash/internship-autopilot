@@ -36,6 +36,54 @@ export type Verdict = (typeof VERDICTS)[number];
  */
 export const DAY_WINDOWS = [1, 3, 7, 14, 30, 90] as const;
 
+/**
+ * The columns the jobs table can be sorted by.
+ *
+ * Five of these six are plain database columns, so sorting by them is an SQL
+ * ORDER BY over the WHOLE result set — cheap, and correct across pages.
+ * "fit" is the odd one out: the fit score is computed in TypeScript from the
+ * job description, which the query deliberately fetches only for the rows on
+ * the current page (see the comment in query.ts). Sorting by it therefore
+ * costs real work, and query.ts caps how much of it it is willing to do.
+ *
+ * Remote and Source are not offered. Both are short enum vocabularies where
+ * the filter bar already lets you pick exactly the one you want, so sorting
+ * by them would only group rows you could have selected outright.
+ */
+export const SORT_KEYS = ["seen", "title", "company", "location", "pay", "fit"] as const;
+export type SortKey = (typeof SORT_KEYS)[number];
+
+/** Which way a sort runs. */
+export const SORT_DIRECTIONS = ["asc", "desc"] as const;
+export type SortDirection = (typeof SORT_DIRECTIONS)[number];
+
+/**
+ * The sort the dashboard uses when nobody has asked for one.
+ *
+ * Newest first — the same order the page has always used. Someone who never
+ * clicks a column header must see exactly what they saw before sorting
+ * existed, so this pair is also what every invalid `?sort=` falls back to.
+ */
+export const DEFAULT_SORT: SortKey = "seen";
+export const DEFAULT_SORT_DIRECTION: SortDirection = "desc";
+
+/**
+ * Which direction a column starts in the first time you click it.
+ *
+ * JUDGMENT CALL: text reads best A→Z, but numbers and dates almost always get
+ * clicked because the reader wants the TOP of the range — the best-paying job,
+ * the best fit, the newest posting. Starting a date column at "oldest first"
+ * would make the first click useless and force a second one every time.
+ */
+export const SORT_DEFAULT_DIRECTION: Record<SortKey, SortDirection> = {
+  title: "asc",
+  company: "asc",
+  location: "asc",
+  pay: "desc",
+  seen: "desc",
+  fit: "desc",
+};
+
 /** A validated set of dashboard filters. `null` always means "no filter". */
 export interface JobFilters {
   /** Case-insensitive substring match against the job title. */
@@ -88,6 +136,14 @@ export interface JobFilters {
    * effect at all until a profile exists — there is nothing to check against.
    */
   eligibility: EligibilityFilter | null;
+  /**
+   * Which column the table is ordered by. Never null — there is always SOME
+   * order on screen, and pretending otherwise would just move the "what do we
+   * do when it is unset?" question somewhere else.
+   */
+  sort: SortKey;
+  /** Which way that column runs. */
+  dir: SortDirection;
   /** 1-based page number. */
   page: number;
 }
@@ -160,6 +216,15 @@ export function parseJobFilters(raw: RawSearchParams): JobFilters {
   const showEverything = ["1", "on", "true"].includes(firstValue(raw, "all") ?? "");
   const shortlist = !showEverything && rawVerdict === null && rawEligibility === null;
 
+  // Sorting follows the same "junk is dropped, never guessed at" rule as
+  // everything above. `?sort=banana` is not an error page; it is the default
+  // order, which is what the reader would have got had they not typed it.
+  const sort = oneOf(firstValue(raw, "sort"), SORT_KEYS) ?? DEFAULT_SORT;
+  // A direction with no column to attach to is meaningless, so the fallback is
+  // whatever THIS column naturally starts at rather than a fixed "desc".
+  // That also makes a bare `?sort=title` (no dir) do the sensible thing.
+  const dir = oneOf(firstValue(raw, "dir"), SORT_DIRECTIONS) ?? SORT_DEFAULT_DIRECTION[sort];
+
   return {
     q: firstValue(raw, "q"),
     companyId: firstValue(raw, "company"),
@@ -172,8 +237,24 @@ export function parseJobFilters(raw: RawSearchParams): JobFilters {
     // (including the parameter being absent) means the box was unchecked.
     includeClosed: ["1", "on", "true"].includes(firstValue(raw, "closed") ?? ""),
     eligibility: oneOf(rawEligibility, ELIGIBILITY_FILTERS),
+    sort,
+    dir,
     page,
   };
+}
+
+/**
+ * Where clicking a column header should take you.
+ *
+ * Two different clicks, two different answers: clicking the column you are
+ * already sorted by flips it (that is the only way to reverse a sort), while
+ * clicking a fresh column starts it at the direction that column is normally
+ * wanted in. Doing it the other way round — always starting at "asc" —
+ * means clicking "Pay" shows you the worst-paid jobs first.
+ */
+export function nextSortDirection(filters: JobFilters, column: SortKey): SortDirection {
+  if (filters.sort !== column) return SORT_DEFAULT_DIRECTION[column];
+  return filters.dir === "asc" ? "desc" : "asc";
 }
 
 /**
@@ -276,6 +357,18 @@ export function buildJobsHref(
   if (!shortlistActive(merged) && !merged.verdict && !merged.eligibility) {
     params.set("all", "1");
   }
+  // Same "omit the default" rule the filters above follow, applied twice:
+  //
+  //   sort — written only when it is not the newest-first default, so the
+  //          plain dashboard URL stays `/jobs`.
+  //   dir  — written only when it is not the direction THAT column starts in,
+  //          because `?sort=title` already means "title, ascending". Writing
+  //          `?sort=title&dir=asc` would say the same thing twice.
+  //
+  // This still round-trips: parseJobFilters fills both back in from exactly
+  // these defaults, so building a URL and re-reading it gives the same sort.
+  if (merged.sort !== DEFAULT_SORT) params.set("sort", merged.sort);
+  if (merged.dir !== SORT_DEFAULT_DIRECTION[merged.sort]) params.set("dir", merged.dir);
   if (merged.page > 1) params.set("page", String(merged.page));
 
   const query = params.toString();

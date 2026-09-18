@@ -873,6 +873,37 @@ table.companies-table td:first-child {
   width: 4rem;
 }
 
+/* Sortable column headers are real links (keyboard reachable, no JavaScript),
+   so they have to stop looking like body links and go back to looking like the
+   header text they replaced. Only the hover and the focus ring give them away
+   as clickable. */
+.col-sort {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  color: inherit;
+  text-decoration: none;
+}
+
+.col-sort:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+/* The column currently sorted reads darker than the rest — but that is a
+   second signal, never the only one. The arrow next to it is what actually
+   says which column and which way, because colour alone is unreadable to a
+   sizeable share of people and this design system spends colour on meaning. */
+.col-sort-active {
+  color: var(--text-primary);
+}
+
+/* The arrow sits in the flex gap rather than inside the label, so a long
+   header ("First seen") cannot wrap between the word and its arrow. */
+.sort-arrow:empty {
+  display: none;
+}
+
 .job-title {
   color: var(--text-primary);
   font-weight: var(--weight-medium);
@@ -2510,6 +2541,14 @@ table.checks.outcomes td {
 }
 
 @media (max-width: 68rem) {
+  /* At tablet widths (800px included) the jobs table still shows all eight
+     columns at fixed percentage widths, and the uppercase letter-spacing on
+     the headers is what pushes "First seen ↓" past its 9% slot. Dropping the
+     tracking buys the arrows their room without hiding a column. */
+  table.jobs th {
+    letter-spacing: 0;
+  }
+
   .site-header {
     display: flex;
     justify-content: space-between;

@@ -23,7 +23,7 @@ import {
   type RawSearchParams,
 } from "@/lib/jobs/filters";
 import { MAX_SCAN } from "@/lib/jobs/list";
-import { listCompanyOptions, listJobs, type CompanyOption } from "@/lib/jobs/query";
+import { FIT_SORT_MAX, listCompanyOptions, listJobs, type CompanyOption } from "@/lib/jobs/query";
 import { FilterBar } from "./filter-bar";
 import { JobTable } from "./job-table";
 
@@ -91,6 +91,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
     eligibility,
     eligibilityCounts,
     scanned,
+    fitSortUnavailable,
   } = result;
   const firstOnPage = matching === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const lastOnPage = Math.min(page * PAGE_SIZE, matching);
@@ -211,7 +212,33 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
         </div>
       ) : null}
 
-      <JobTable rows={rows} verdicts={verdicts} eligibility={eligibility} now={now} />
+      {/* Sorting by fit means working out a score for every posting in the
+          list, not just the fifty on screen — and a score needs the whole job
+          description. Past a few hundred postings that is too much work to do
+          on every page load.
+
+          We say so instead of doing it badly. Sorting only the fifty rows in
+          front of you would look right and be wrong: the best-fitting job
+          would still be sitting on page 4 while page 1 claimed to be the top
+          of the list. */}
+      {fitSortUnavailable ? (
+        <div className="notice">
+          <strong>Not sorted by fit.</strong> That needs a fit score for all{" "}
+          {matching.toLocaleString()} postings listed here, and this page will
+          only work out {FIT_SORT_MAX.toLocaleString()} at a time. These are in
+          the usual order, newest first. Narrow the filters — a company, a date
+          window, or back to <a href={shortlistHref}>the shortlist</a> — and the
+          fit sort will work.
+        </div>
+      ) : null}
+
+      <JobTable
+        rows={rows}
+        verdicts={verdicts}
+        eligibility={eligibility}
+        filters={filters}
+        now={now}
+      />
 
       <div className="pager">
         <span>
