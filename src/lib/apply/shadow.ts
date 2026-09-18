@@ -717,7 +717,9 @@ async function chooseFromCombobox(
   }
 
   await page
-    .locator(`#${cssEscape(menuId)} [role="option"], #${cssEscape(menuId)} [class*="select__option"]`)
+    .locator(
+      `${idSelector(menuId)} [role="option"], ${idSelector(menuId)} [class*="select__option"]`,
+    )
     .filter({ hasText: new RegExp(`^${escapeRegExp(chosen)}$`, "i") })
     .first()
     .click({ timeout: 5_000 });
@@ -774,7 +776,7 @@ function locatorFor(page: Page, item: PlannedField) {
  */
 function locatorForField(page: Page, field: { elementId: string; name: string }) {
   if (field.elementId.length > 0) {
-    return page.locator(`#${cssEscape(field.elementId)}`).first();
+    return page.locator(idSelector(field.elementId)).first();
   }
   if (field.name.length > 0) {
     return page.locator(`[name="${cssEscape(field.name)}"]`).first();
@@ -794,6 +796,23 @@ function safeHost(url: string): string {
 /** Minimal CSS identifier escaping for ids and names taken from a page. */
 function cssEscape(value: string): string {
   return value.replace(/["\\\]\[]/g, "\\$&");
+}
+
+/**
+ * Address an element by its id, WITHOUT using the `#id` shorthand.
+ *
+ * Greenhouse hands its EEO questions numeric ids — `4028533002` — and a CSS
+ * identifier may not begin with a digit, so `#4028533002` is not merely
+ * unmatched, it is a syntax error: Playwright threw
+ * "Failed to execute 'querySelectorAll'" and three real questions (gender
+ * identity, disability, veteran status) went unanswered on a live form.
+ *
+ * `[id="..."]` has no such restriction — an attribute value is just a string.
+ * There is no downside: it matches exactly what `#id` would have matched, on
+ * ids that were legal anyway.
+ */
+function idSelector(id: string): string {
+  return `[id="${cssEscape(id)}"]`;
 }
 
 /**

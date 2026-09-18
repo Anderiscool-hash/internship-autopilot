@@ -124,6 +124,40 @@ export function currentEducation(profile: FillProfile): EducationEntry | null {
 }
 
 /**
+ * Does this read as a sentence a human must answer, rather than a field label?
+ *
+ * Deliberately conservative — a false positive only means a field is left for
+ * the person, while a false negative writes a wrong answer onto a real form.
+ *
+ * Three independent signals, any one of which is enough:
+ *   - it asks to be told something ("tell us", "share with us", "describe")
+ *   - it runs on past the length of any real label AND ends like a sentence
+ *   - it contains a sentence break: a full stop followed by a new capital
+ */
+export function looksLikeProse(label: string): boolean {
+  const text = label.trim();
+  if (text.length === 0) return false;
+
+  if (/\b(tell us|share with us|describe|explain|walk us through|in your own words)\b/i.test(text)) {
+    return true;
+  }
+  // An open-ended question wants an essay: "Why are you interested in X?",
+  // "How will your experience make an impact?". Deliberately only "why" and
+  // "how" — "what" opens plenty of legitimate short fields ("What is your
+  // expected graduation timeline?" is a dropdown), and a closed question like
+  // "Are you authorized to work...?" is answerable and must stay answerable.
+  if (/^(why|how)\b/i.test(text) && text.endsWith("?")) return true;
+
+  // "Sentence. Another sentence" — a label does not do this.
+  if (/[.!?]\s+[A-Z]/.test(text)) return true;
+  // Long and punctuated like prose. 60 characters is well past "Preferred
+  // First Name" or "LinkedIn Profile" and short of most real essay prompts.
+  if (text.length > 60 && /[.!?]/.test(text)) return true;
+
+  return false;
+}
+
+/**
  * The profile value for a standard field, or null.
  *
  * Matched on the label the employer wrote, since that is all we have. Order
@@ -132,6 +166,25 @@ export function currentEducation(profile: FillProfile): EducationEntry | null {
  */
 export function profileValueFor(label: string, profile: FillProfile): string | null {
   const text = label.toLowerCase();
+
+  // An essay prompt is not a field label, and must never be answered from the
+  // profile by keyword.
+  //
+  // Every rule below matches a bare keyword anywhere in the text, which is
+  // right for a label ("School", "LinkedIn Profile") and dangerous for a
+  // sentence. A live Duolingo run asked "Share with us your proudest
+  // accomplishment. This can be pre-college." — the word "college" sits
+  // inside "pre-college", the school rule fired, and the candidate's school
+  // name was typed into an essay box as their proudest accomplishment.
+  //
+  // That is the worst failure this file has: a plausible-looking value that
+  // is simply wrong, written into a field no dropdown can reject, on a form
+  // about to be sent to an employer. Same lesson as the street address in
+  // Coinbase's Country field, one rule further down.
+  //
+  // So prose is refused outright and left for the person, who is the only one
+  // who can answer "why this company" anyway.
+  if (looksLikeProse(label)) return null;
 
   // ── The employment block, checked first ──────────────────────────────
   // "Company name" and "Title" are asked on nearly every form and mean the

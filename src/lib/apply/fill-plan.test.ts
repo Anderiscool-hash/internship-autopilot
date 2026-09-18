@@ -18,6 +18,7 @@ import {
   profileValueFor,
   type FillableField,
   type FillProfile,
+  looksLikeProse,
 } from "./fill-plan";
 
 const PROFILE: FillProfile = {
@@ -382,5 +383,58 @@ describe("matchOptionForLabel", () => {
   it("still refuses when nothing matches", () => {
     expect(matchOptionForLabel("Hogwarts", SCHOOLS, "School")).toBeNull();
     expect(matchOptionForLabel("Some certificate", DEGREES, "Degree")).toBeNull();
+  });
+});
+
+describe("looksLikeProse", () => {
+  // The live failure this guard exists for: a Duolingo essay prompt whose
+  // wording happens to contain "college", which made the school rule fire and
+  // typed the candidate's school name in as their proudest accomplishment.
+  it("refuses the essay prompt that once got answered with a school name", () => {
+    expect(
+      looksLikeProse(
+        "Share with us your proudest accomplishment. This can be pre-college.",
+      ),
+    ).toBe(true);
+    expect(
+      profileValueFor(
+        "Share with us your proudest accomplishment. This can be pre-college.",
+        PROFILE,
+      ),
+    ).toBeNull();
+  });
+
+  it("recognises the other ways a form asks for prose", () => {
+    for (const prompt of [
+      "Why are you interested in Duolingo?",
+      "Tell us about your experience in computer science. Why did you choose it?",
+      "Describe a time you disagreed with a teammate.",
+      "How will your personal experiences make an impact at Duolingo?",
+      "In your own words, what drew you to this role?",
+    ]) {
+      expect(looksLikeProse(prompt), prompt).toBe(true);
+    }
+  });
+
+  it("leaves real field labels alone", () => {
+    for (const label of [
+      "School",
+      "University",
+      "Preferred First Name",
+      "LinkedIn Profile",
+      "Degree",
+      "Undergraduate GPA",
+      "Company name",
+      "Start date month",
+      "Website",
+      "Are you authorized to work lawfully in the United States?",
+    ]) {
+      expect(looksLikeProse(label), label).toBe(false);
+    }
+  });
+
+  it("still answers a genuine school field", () => {
+    expect(profileValueFor("School", PROFILE)).toBe(PROFILE.school);
+    expect(profileValueFor("College or University", PROFILE)).toBe(PROFILE.school);
   });
 });
