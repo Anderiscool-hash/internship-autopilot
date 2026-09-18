@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { extractRequirements, toPlainText } from "./extract";
+import { EARLIEST_YEAR, LATEST_YEAR, extractRequirements, toPlainText } from "./extract";
 
 describe("toPlainText", () => {
   it("turns tags into spaces so words are not glued together", () => {
@@ -109,11 +109,22 @@ describe("education level", () => {
     );
   });
 
-  it("prefers the highest demanded level when several are named", () => {
+  it("takes the lowest demanded level when several are named", () => {
     expect(
       extractRequirements("Must have a Bachelor's degree; PhD is required for the research track.")
         .educationLevel,
-    ).toBe("phd");
+    ).toBe("bachelors");
+  });
+
+  it("reads 'a bachelor's or master's degree' as a bachelor's, not a master's", () => {
+    // Real wording from a Coinbase credit-risk internship. Reading this as a
+    // master's requirement hid the posting from the undergraduates it was
+    // written for.
+    expect(
+      extractRequirements(
+        "Currently pursuing a bachelor's or master's degree in finance, economics, mathematics, or a related quantitative discipline.",
+      ).educationLevel,
+    ).toBe("bachelors");
   });
 
   it("does not turn a mention into a requirement", () => {
@@ -132,6 +143,39 @@ describe("graduation window", () => {
       extractRequirements("For students graduating between 2027 and 2028.")
         .graduationWindow,
     ).toEqual({ from: 2027, to: 2028 });
+  });
+
+  it("reads a range written with 'or' rather than 'and'", () => {
+    // This used to fall through to the single-year fallback and come back as
+    // {2026, 2026}, which hid the job from every 2027 graduate.
+    expect(extractRequirements("Graduating 2026 or 2027.").graduationWindow).toEqual({
+      from: 2026,
+      to: 2027,
+    });
+  });
+
+  it("reads a range that has a month attached to each end", () => {
+    expect(
+      extractRequirements("For students graduating between December 2026 and May 2027.")
+        .graduationWindow,
+    ).toEqual({ from: 2026, to: 2027 });
+  });
+
+  it("leaves the upper end open when the posting says 'or later'", () => {
+    // Real posting wording. The stated year is the EARLIEST accepted, not the
+    // only one — closing the window at 2027 ruled out a 2029 graduate who
+    // qualified.
+    expect(
+      extractRequirements("Expected graduation date of December 2027 or later.")
+        .graduationWindow,
+    ).toEqual({ from: 2027, to: LATEST_YEAR });
+  });
+
+  it("leaves the lower end open when the posting says 'or earlier'", () => {
+    expect(
+      extractRequirements("Open to students graduating in 2026 or earlier.")
+        .graduationWindow,
+    ).toEqual({ from: EARLIEST_YEAR, to: 2026 });
   });
 
   it("reads a single year as a window of one", () => {
@@ -167,6 +211,28 @@ describe("experience", () => {
         "2+ years of experience required. 5+ years of experience preferred.",
       ).minimumExperienceYears,
     ).toBe(2);
+  });
+
+  it("does not treat a preference as a minimum", () => {
+    // "is a plus" used to become a hard three-year minimum, which hides the
+    // job from every student.
+    expect(
+      extractRequirements("3+ years of experience is a plus.").minimumExperienceYears,
+    ).toBeNull();
+  });
+
+  it("ignores every phrasing employers use for a wish rather than a rule", () => {
+    const phrasings = [
+      "5+ years of relevant experience preferred.",
+      "Ideally 2 years of experience in a similar role.",
+      "3 years of experience with distributed systems is a nice-to-have.",
+      "4+ years of experience is a bonus.",
+      "2 years of experience is desirable.",
+      "We'd love 6 years of experience in payments.",
+    ];
+    for (const text of phrasings) {
+      expect(extractRequirements(text).minimumExperienceYears, text).toBeNull();
+    }
   });
 
   it("reads a range as its lower bound", () => {
