@@ -158,7 +158,7 @@ export function JobTable({ rows, verdicts, eligibility, now }: JobTableProps) {
                     {job.fit && job.fit.score !== null ? (
                       <span
                         className="fit-score"
-                        title={`Scored on ${Math.round(job.fit.coverage * 100)}% of spec §12's weights.`}
+                        title={`Scored on ${Math.round(job.fit.coverage * 100)}% of the weights.`}
                       >
                         {job.fit.score}%
                       </span>

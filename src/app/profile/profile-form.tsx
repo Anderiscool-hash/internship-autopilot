@@ -205,7 +205,7 @@ export function ProfileForm({
       <fieldset>
         <legend>Eligibility</legend>
         <p className="note">
-          The eligibility engine reads these directly (spec §11). Leave anything
+          These decide which jobs you are shown. Leave anything
           you are unsure about blank — a blank field means &ldquo;unknown&rdquo;,
           which is safe; a wrong one makes the bot apply to jobs you cannot take.
         </p>

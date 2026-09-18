@@ -51,7 +51,7 @@ export function TruthLedger({
     <section className="stack">
       <h2>Truth Ledger</h2>
       <p className="note">
-        The only source of claims the AI may use about you (spec §3). If it is
+        The only source of claims the AI may use about you. If it is
         not written here, no resume or cover letter this app generates is allowed
         to say it.
       </p>
