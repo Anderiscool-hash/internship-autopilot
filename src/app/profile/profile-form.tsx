@@ -255,6 +255,12 @@ export function ProfileForm({
             defaultValue={profile?.minimumSalary}
             hint="Whole number, no currency symbol. Blank means no minimum."
           />
+          <Field
+            name="yearsOfExperience"
+            label="Years of experience"
+            defaultValue={profile?.yearsOfExperience}
+            hint="Full-time years only — internships and coursework don't count. Most students answer 0. Blank means you'd rather not say, and postings asking for more years will be flagged instead of ruled out."
+          />
         </div>
         <div className="grid">
           <ListField

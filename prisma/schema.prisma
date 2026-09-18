@@ -221,6 +221,11 @@ model Candidate {
   /// normalize pay period, see Job.salaryMin/Max for the same judgment call).
   minimumSalary      Int?
   desiredRoles       String[]
+  /// Years of professional experience, or null when the candidate has not
+  /// said. Read by the hard eligibility engine (spec §11) to compare against
+  /// a posting's stated minimum. Null is meaningfully different from 0: it
+  /// means "unstated", and unstated must never rule a job out.
+  yearsOfExperience  Int?
 
   // --- resume/matching inputs
   skills         String[]

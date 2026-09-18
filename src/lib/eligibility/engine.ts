@@ -60,16 +60,33 @@ export interface EligibilityProfile {
   citizenship: string | null;
   workAuthorization: string | null;
   certifications: string[];
+  /**
+   * Years of professional experience the candidate claims, or null if they
+   * have not said. Internships and coursework do not count here — this is the
+   * number a posting means when it writes "3+ years of experience".
+   *
+   * Null is a real answer, not a zero: see experienceCheck for why silence
+   * cannot be allowed to fail.
+   */
+  yearsOfExperience: number | null;
 }
 
 /**
- * Experience above this many years means the posting is not a student role.
+ * How many years a posting can ask for before it stops looking like a student
+ * role, used ONLY when the profile has not said how much experience it has.
  *
  * JUDGMENT CALL. Spec §11 lists "requires experience above allowed threshold"
  * as a hard failure but never sets the number. Two years is the line where a
  * posting stops being plausibly open to someone still in school; anything at
  * or below it passes, so an internship asking for "1-2 years" is not ruled
  * out. Passed in as a parameter so it can be tuned without touching logic.
+ *
+ * Note what this number may and may not do. When the profile states a number,
+ * the check compares the two stated figures and this constant is not consulted
+ * at all. When the profile is silent, exceeding this threshold produces
+ * "unknown", never "fail" — the posting said something, the candidate said
+ * nothing, and inventing the contradiction is exactly what the header of this
+ * file forbids.
  */
 export const DEFAULT_MAX_EXPERIENCE_YEARS = 2;
 
@@ -126,7 +143,7 @@ export function checkEligibility(
   const checks: EligibilityCheck[] = [
     degreeCheck(profile, requirements),
     graduationCheck(profile, requirements),
-    experienceCheck(requirements, maxExperience),
+    experienceCheck(profile, requirements, maxExperience),
     sponsorshipCheck(profile, requirements),
     citizenshipCheck(profile, requirements),
     clearanceCheck(profile, requirements),
@@ -211,23 +228,62 @@ function describeWindow(window: { from: number; to: number }): string {
   return window.from === window.to ? `${window.from}` : `${window.from}–${window.to}`;
 }
 
+/**
+ * Compare the experience a posting asks for against the experience the
+ * candidate claims.
+ *
+ * This is the one check that used to break the rule at the top of this file.
+ * It failed any posting asking for more than a fixed two years, even though
+ * the profile never stated a number to contradict — the posting had spoken,
+ * the candidate had not, and the engine invented the conflict anyway. That is
+ * how a senior-sounding posting and a genuine internship both disappeared for
+ * the same reason.
+ *
+ * Now there are two paths. If the profile states a number, the two stated
+ * figures are compared and a shortfall is a real, evidenced "fail". If the
+ * profile is silent, a posting over the student-role threshold is "unknown":
+ * worth flagging to the reader, never grounds for hiding the job.
+ */
 function experienceCheck(
+  profile: EligibilityProfile,
   requirements: JobRequirements,
   maxYears: number,
 ): EligibilityCheck {
   const label = "Experience requirement";
   const years = requirements.minimumExperienceYears;
+  const held = profile.yearsOfExperience;
 
   if (years === null) {
     return { label, verdict: "pass", reason: "The posting states no experience minimum." };
   }
+
+  // Both sides stated a number, so this is an ordinary comparison.
+  if (held !== null) {
+    if (years <= held) {
+      return {
+        label,
+        verdict: "pass",
+        reason: `Asks for ${years} years; you have ${held}.`,
+      };
+    }
+    return {
+      label,
+      verdict: "fail",
+      reason: `Asks for ${years} years of experience; your profile says ${held}.`,
+    };
+  }
+
+  // The profile said nothing. Below the student-role threshold this is
+  // plainly fine; above it, say so without ruling the job out.
   if (years <= maxYears) {
     return { label, verdict: "pass", reason: `Asks for ${years} years, within reach.` };
   }
   return {
     label,
-    verdict: "fail",
-    reason: `Asks for ${years} years of experience — above the ${maxYears}-year threshold for a student role.`,
+    verdict: "unknown",
+    reason:
+      `Asks for ${years} years of experience — more than the ${maxYears} years typical of a student role. ` +
+      "Your profile does not say how many years you have, so this cannot be checked.",
   };
 }
 

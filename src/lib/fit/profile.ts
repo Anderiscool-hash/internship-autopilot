@@ -23,6 +23,7 @@ export function toEligibilityProfile(profile: ProfileWithFacts): EligibilityProf
     citizenship: profile.citizenship,
     workAuthorization: profile.workAuthorization,
     certifications: profile.certifications,
+    yearsOfExperience: profile.yearsOfExperience,
   };
 }
 

@@ -35,6 +35,7 @@ export interface ProfileInput {
   preferredLocations: string[];
   remotePreference: RemotePreference;
   minimumSalary: number | null;
+  yearsOfExperience: number | null;
   desiredRoles: string[];
   skills: string[];
   certifications: string[];
@@ -154,6 +155,11 @@ export function parseProfile(values: FormValues): ParseResult<ProfileInput> {
     errors.push("Minimum salary must be a whole number, or blank.");
   }
 
+  const yearsOfExperience = wholeNumber(values, "yearsOfExperience");
+  if (yearsOfExperience === undefined) {
+    errors.push("Years of experience must be a whole number, or blank.");
+  }
+
   const rawRemote = text(values, "remotePreference");
   const remotePreference =
     rawRemote !== null && rawRemote in RemotePreference
@@ -180,6 +186,7 @@ export function parseProfile(values: FormValues): ParseResult<ProfileInput> {
       preferredLocations: list(values, "preferredLocations"),
       remotePreference,
       minimumSalary: minimumSalary as number | null,
+      yearsOfExperience: yearsOfExperience as number | null,
       desiredRoles: list(values, "desiredRoles"),
       skills: list(values, "skills"),
       certifications: list(values, "certifications"),

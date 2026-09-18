@@ -20,6 +20,8 @@ function profile(overrides: Partial<EligibilityProfile> = {}): EligibilityProfil
     citizenship: "United States",
     workAuthorization: "US Citizen",
     certifications: [],
+    // Unstated on purpose: silence is the default this engine must handle.
+    yearsOfExperience: null,
     ...overrides,
   };
 }
@@ -106,18 +108,51 @@ describe("checkEligibility", () => {
     expect(check(result, "Graduation requirement").verdict).toBe("unknown");
   });
 
-  it("fails experience above the student threshold and passes at it", () => {
+  it("flags experience above the student threshold without ruling the job out", () => {
     const tooMuch = checkEligibility(
       profile(),
       requirements({ minimumExperienceYears: 5 }),
     );
-    expect(check(tooMuch, "Experience requirement").verdict).toBe("fail");
+    // The posting asked for five years; the profile never said. Saying
+    // "ineligible" here would hide the job over a fact nobody stated.
+    expect(check(tooMuch, "Experience requirement").verdict).toBe("unknown");
+    expect(tooMuch.verdict).toBe("unconfirmed");
+    expect(tooMuch.blockers).toHaveLength(0);
 
     const fine = checkEligibility(profile(), requirements({ minimumExperienceYears: 2 }));
     expect(check(fine, "Experience requirement").verdict).toBe("pass");
   });
 
-  it("honours a custom experience threshold", () => {
+  it("fails experience only when the profile states a number below what is asked", () => {
+    const short = checkEligibility(
+      profile({ yearsOfExperience: 0 }),
+      requirements({ minimumExperienceYears: 4 }),
+    );
+    expect(check(short, "Experience requirement").verdict).toBe("fail");
+    expect(short.verdict).toBe("ineligible");
+
+    const enough = checkEligibility(
+      profile({ yearsOfExperience: 6 }),
+      requirements({ minimumExperienceYears: 4 }),
+    );
+    expect(check(enough, "Experience requirement").verdict).toBe("pass");
+  });
+
+  it("treats a stated zero as a real answer, not as silence", () => {
+    // 0 and null must not collapse: a stated zero can fail, silence cannot.
+    const stated = checkEligibility(
+      profile({ yearsOfExperience: 0 }),
+      requirements({ minimumExperienceYears: 3 }),
+    );
+    const silent = checkEligibility(
+      profile({ yearsOfExperience: null }),
+      requirements({ minimumExperienceYears: 3 }),
+    );
+    expect(check(stated, "Experience requirement").verdict).toBe("fail");
+    expect(check(silent, "Experience requirement").verdict).toBe("unknown");
+  });
+
+  it("honours a custom experience threshold when the profile is silent", () => {
     const result = checkEligibility(
       profile(),
       requirements({ minimumExperienceYears: 4 }),
