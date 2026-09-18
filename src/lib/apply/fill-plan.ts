@@ -398,6 +398,71 @@ export function matchOptionForLabel(
     }
   }
 
+  const eeo = matchEeoOption(value, options, label);
+  if (eeo) return eeo;
+
+  return null;
+}
+
+/** EEO questions this may touch. Race and ethnicity are deliberately absent. */
+const EEO_LABEL = /gender identity|\bgender\b|\bdisability\b|chronic condition|veteran/i;
+
+/** "I'd rather not say", in the several ways the federal forms word it. */
+const DECLINE = /don'?t wish to answer|do not wish to answer|prefer not|decline to|choose not to|rather not say/i;
+
+/**
+ * Match a legally-worded EEO answer to the wording this employer offers.
+ *
+ * The self-identification questions have standard federal phrasing — "I am
+ * not a protected veteran", "No, I do not have a disability" — and every ATS
+ * rewords them. A live Greenhouse run offered "No, I am not a veteran or
+ * active member" against a stored "I am not a protected veteran", and
+ * "Man"/"Woman" against a stored "Male"/"Female". All three EEO questions went
+ * unanswered on a form that required them.
+ *
+ * WHAT THIS DELIBERATELY WILL NOT DO. Race and ethnicity are not handled at
+ * all: those are many specific categories, a wrong pick is a false statement
+ * about the candidate, and there is no safe general rule. Nor does this invent
+ * an answer — it only decides which of the employer's own options expresses
+ * the same yes / no / decline the candidate already gave. Where more than one
+ * option could express it, it returns null and the question is put to the
+ * person, because a coin toss on a legal self-identification is worse than
+ * leaving it blank.
+ */
+export function matchEeoOption(
+  value: string,
+  options: string[],
+  label: string,
+): string | null {
+  if (!EEO_LABEL.test(label)) return null;
+  const wanted = value.trim();
+  if (wanted.length === 0 || options.length === 0) return null;
+
+  // Gender is a plain synonym pair, not a polarity. Only these two: anything
+  // else the candidate wrote is theirs to place.
+  if (/gender/i.test(label)) {
+    const synonym = /^male$/i.test(wanted) ? "man" : /^female$/i.test(wanted) ? "woman" : null;
+    if (!synonym) return null;
+    const hits = options.filter((option) => option.trim().toLowerCase() === synonym);
+    return hits.length === 1 ? (hits[0] as string) : null;
+  }
+
+  // Disability and veteran status are yes / no / decline underneath their
+  // wording, so the answer and the options are compared on that alone.
+  const polarity = eeoPolarity(wanted);
+  if (polarity === null) return null;
+
+  const hits = options.filter((option) => eeoPolarity(option) === polarity);
+  return hits.length === 1 ? (hits[0] as string) : null;
+}
+
+/** Whether an EEO phrase says yes, says no, or declines to answer. */
+function eeoPolarity(text: string): "yes" | "no" | "decline" | null {
+  const t = text.trim();
+  // Checked first: "I don't wish to answer" also contains "don't".
+  if (DECLINE.test(t)) return "decline";
+  if (/^no\b|\bi am not\b|\bi do not\b|\bi don'?t\b|\bnot a\b|\bno,/i.test(t)) return "no";
+  if (/^yes\b|\bi am a\b|\bi have\b|\bi identify\b|\byes,/i.test(t)) return "yes";
   return null;
 }
 

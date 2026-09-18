@@ -19,6 +19,7 @@ import {
   type FillableField,
   type FillProfile,
   looksLikeProse,
+  matchEeoOption,
 } from "./fill-plan";
 
 const PROFILE: FillProfile = {
@@ -436,5 +437,58 @@ describe("looksLikeProse", () => {
   it("still answers a genuine school field", () => {
     expect(profileValueFor("School", PROFILE)).toBe(PROFILE.school);
     expect(profileValueFor("College or University", PROFILE)).toBe(PROFILE.school);
+  });
+});
+
+describe("matchEeoOption", () => {
+  // Every option list below is copied verbatim from a live Greenhouse run,
+  // and every stored answer is the federal wording the answer bank holds.
+  const GENDER = ["Man", "Non-binary", "Woman", "I don't wish to answer", "I prefer to self-describe"];
+  const DISABILITY = ["Yes", "No", "I don't wish to answer", "I prefer to self-describe"];
+  const VETERAN = [
+    "I am a veteran or active member",
+    "No, I am not a veteran or active member",
+    "I don't wish to answer",
+    "I prefer to self-describe",
+  ];
+
+  it("matches the three answers that went unanswered on a real form", () => {
+    expect(matchEeoOption("Male", GENDER, "How would you describe your gender identity?")).toBe("Man");
+    expect(
+      matchEeoOption("No, I do not have a disability", DISABILITY, "Do you have a disability or chronic condition"),
+    ).toBe("No");
+    expect(
+      matchEeoOption("I am not a protected veteran", VETERAN, "Are you a veteran or active member?"),
+    ).toBe("No, I am not a veteran or active member");
+  });
+
+  it("matches the affirmative and the declined forms too", () => {
+    expect(matchEeoOption("Female", GENDER, "Gender")).toBe("Woman");
+    expect(matchEeoOption("Yes, I have a disability", DISABILITY, "disability")).toBe("Yes");
+    expect(
+      matchEeoOption("I identify as one or more of the classifications of a protected veteran", VETERAN, "veteran"),
+    ).toBe("I am a veteran or active member");
+    expect(matchEeoOption("I decline to self-identify", VETERAN, "veteran")).toBe("I don't wish to answer");
+  });
+
+  it("refuses to touch race and ethnicity", () => {
+    // Many specific categories; a wrong pick is a false statement about the
+    // candidate, and there is no safe general rule.
+    expect(
+      matchEeoOption("Hispanic or Latino", ["White", "Hispanic or Latino", "Asian"], "How would you describe your racial/ethnic background?"),
+    ).toBeNull();
+  });
+
+  it("stays out of questions that are not EEO", () => {
+    expect(matchEeoOption("No", ["Yes", "No"], "Are you willing to relocate?")).toBeNull();
+  });
+
+  it("leaves a gender the candidate wrote themselves alone", () => {
+    expect(matchEeoOption("Genderqueer", GENDER, "gender identity")).toBeNull();
+  });
+
+  it("returns null rather than guess when two options say the same thing", () => {
+    // A coin toss on a legal self-identification is worse than a blank.
+    expect(matchEeoOption("No, I do not have a disability", ["No", "No, none"], "disability")).toBeNull();
   });
 });
