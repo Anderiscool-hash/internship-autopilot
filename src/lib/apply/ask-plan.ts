@@ -11,8 +11,9 @@
  * here and tested without a browser.
  */
 
-import { ambiguousLabelReason } from "../answers/ambiguous-labels";
+import { ambiguousLabelReason, looksLikeFieldId } from "../answers/ambiguous-labels";
 import { conceptOf } from "../answers/concepts";
+import { findAnswer, SUGGESTED_QUESTIONS, type AnswerEntry } from "../answers/match";
 import type { FieldOutcome } from "./shadow-types";
 import type { FillableField } from "./fill-plan";
 
@@ -76,7 +77,7 @@ export function questionsToAsk(
  * Most should: "are you at least 18", "how did you hear about us" and the rest
  * are asked by everyone, and answering them once is the point of the exercise.
  *
- * Three kinds are not worth storing, because reusing them would be wrong
+ * Four kinds are not worth storing, because reusing them would be wrong
  * rather than merely useless:
  *
  *   - anything naming this employer ("Have you worked at Coinbase before?"),
@@ -85,6 +86,8 @@ export function questionsToAsk(
  *     for this role")
  *   - a label proven to be reused with a different meaning in different
  *     sections of a form (see ../answers/ambiguous-labels.ts)
+ *   - a "question" that is really the form's own field id, because the form
+ *     had no readable label to read (same file)
  *
  * Storing those would quietly put last week's answer on this week's form,
  * which is the failure this whole codebase is built to avoid.
@@ -92,6 +95,18 @@ export function questionsToAsk(
 export function worthStoring(question: string, companyName: string): boolean {
   const text = question.toLowerCase();
   const company = companyName.toLowerCase().trim();
+
+  // Not a question at all — the form gave no readable label, so what reached
+  // here is the input's `name` attribute: `cards[026d7ce7-…][field0]`. Unlike
+  // the cases below, this one is not a risk of a *wrong* answer; it is a row
+  // that can never be a right one. Matching keys on question text, and those
+  // ids are regenerated per form, so the next form's version of this same
+  // field carries a different id and the stored row can never match again.
+  // It would also be shown to the person on /answers exactly as written,
+  // asking them `cards[026d7ce7-…][field0]` as if that were a question. A row
+  // that cannot pay off and can only confuse is not worth writing — see
+  // looksLikeFieldId for what it does and does not catch.
+  if (looksLikeFieldId(question)) return false;
 
   // A label already proven to collide across sections ("Start date month"
   // meaning an employment date on one employer's form and an education date
@@ -131,4 +146,42 @@ export function worthStoring(question: string, companyName: string): boolean {
   }
 
   return true;
+}
+
+/** A standard question with no answer stored under any wording. */
+export interface UnansweredSuggestion {
+  question: string;
+  /** Legal/eligibility answers, which are never paraphrased. */
+  isLegal: boolean;
+}
+
+/**
+ * Which of the standard questions would still stop an apply run.
+ *
+ * Lives here rather than on the page because "will this run stop and ask?" is
+ * an ask-plan question, and because the answer must be computed the SAME way
+ * the run computes it. The rule is `findAnswer` — the matcher the autofill
+ * itself uses — and nothing else.
+ *
+ * WHY NOT EXACT TEXT: the obvious version of this ("is this exact sentence a
+ * key in the bank?") disagrees with the rest of the app. Most stored answers
+ * were captured mid-application under the employer's own wording, so
+ * "Are you authorized to work in the US?" is really sitting in the bank as
+ * "Are you legally authorized to work in the United States?". Exact matching
+ * calls that unanswered; `findAnswer` — and therefore the actual apply run —
+ * does not. Listing it as missing would be telling the person to do work that
+ * changes nothing, and contradicting the same page's own display of their
+ * answer a few inches higher up.
+ *
+ * So: differently worded but covered is NOT missing. Missing means the run
+ * really will stop.
+ */
+export function unansweredSuggestions(entries: AnswerEntry[]): UnansweredSuggestion[] {
+  return SUGGESTED_QUESTIONS.filter((suggestion) => {
+    const match = findAnswer(suggestion.question, entries);
+    // A match to a row holding an empty answer is not an answer. Nothing
+    // should be able to store one, but a blank here would fill a form with
+    // nothing rather than pausing, so it is checked rather than assumed.
+    return match === null || match.entry.answer.trim().length === 0;
+  });
 }

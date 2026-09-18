@@ -125,3 +125,87 @@ export function ambiguousLabelReason(label: string): string | null {
   }
   return null;
 }
+
+/* ============================================================================
+   Labels that are not questions at all
+   ============================================================================
+
+   The denylist above is about labels a human *did* write that mean two
+   different things. This next one is a different problem with the same
+   remedy: a "label" no human wrote at all.
+
+   Where it comes from: the form reader takes an input's visible label when it
+   can find one, and falls back to the input's `name` attribute when it
+   cannot. That fallback is right for filling — `name` is how the field gets
+   submitted — but it is wrong for *remembering*, because `../apply/ask-plan.ts`
+   stores `field.label` as the question. When the fallback fires, the machine
+   id becomes the stored "question", and four such rows are sitting in this
+   candidate's answer bank right now:
+
+     cards[026d7ce7-7ca4-44ed-9db6-1c7857707f0e][field0]  =>  "2029"
+     cards[7736d0ea-6916-4d17-8895-c31776dbef15][field0]  =>  "Forward Deployed…"
+     cards[841c3f3c-3e6e-4665-9391-e360210fb5ee][field0]  =>  "September 2026"
+     cards[877379a1-2abf-4eab-9c51-81e7b5828b3e][field0]  =>  "Yes"
+
+   Why such a row is worse than useless. Matching is on question TEXT
+   (`./match.ts`), and those uuids are generated per form, per session — the
+   next form's version of the same field carries a different uuid, so the
+   stored row can never match anything again as long as it exists. It is dead
+   weight that cannot pay off. And because `/answers` renders the stored
+   question as the field's label, it leaks straight through to the person,
+   who is asked `cards[026d7ce7-…][field0]` as though it were a question.
+
+   Refusing to store one is the same judgement `worthStoring` already makes
+   three times over: a row that can only ever be wrong, or can never be right,
+   is not worth having.
+
+   SCOPE, same doctrine as the list above: match only shapes that are
+   unmistakably machine-generated, and let anything doubtful through. A false
+   positive here silently drops a real answer a person typed, which is far
+   worse than keeping one junk row — so nothing containing a space is ever
+   caught, and no heuristic about "looks technical" is applied. Real stored
+   questions this must keep its hands off include "Are you legally authorized
+   to work in the United States?", "Will you now or in the future require
+   sponsorship for employment visa status?", "Start date month" and "How did
+   you hear about us?". */
+
+/** Words an ATS uses to number an unlabelled input: `field0`, `input_2`. */
+const FIELD_ID_WORDS = "field|input|question|answer|entry|item|element|q";
+
+/**
+ * Does this "question" look like a form's internal field id rather than
+ * something a person wrote?
+ *
+ * Shared deliberately: `../apply/ask-plan.ts` uses it to refuse to store new
+ * ones, and `/answers` uses it to pull the existing ones out of the list of
+ * real questions. One definition, so the page and the apply path cannot come
+ * to different conclusions about the same row.
+ */
+export function looksLikeFieldId(label: string): boolean {
+  const trimmed = label.trim();
+  if (trimmed.length === 0) return false;
+
+  // Bracket subscript syntax, the shape every one of the four real examples
+  // takes: a name followed by one or more `[...]` groups, with no spaces
+  // anywhere — `cards[026d7ce7-…][field0]`, `job_application[answers][3]`.
+  // A written question does not look like this; nothing in the 69 stored
+  // rows that a person actually worded contains a bracket at all.
+  if (/^[A-Za-z_][A-Za-z0-9_.-]*(?:\[[^\]\s]*\])+$/.test(trimmed)) return true;
+
+  // Past this point, anything with whitespace in it is prose — a real
+  // question, however oddly worded — and is left alone unconditionally.
+  if (/\s/.test(trimmed)) return false;
+
+  // A bare numbered input: `field0`, `input_2`, `question-7`, `answer.3`.
+  // Anchored whole-string, so a genuine one-word label is untouched and a
+  // question merely *containing* the word "question" is not a candidate.
+  if (new RegExp(`^(?:${FIELD_ID_WORDS})[-_.]?\\d+$`, "i").test(trimmed)) return true;
+
+  // A bare uuid, or a long run of hex — an id pasted in with no name at all.
+  // Sixteen hex characters is the floor on purpose: eight would catch a real
+  // (if unlikely) word, and no English label is sixteen unbroken hex digits.
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)) return true;
+  if (/^[0-9a-f]{16,}$/i.test(trimmed)) return true;
+
+  return false;
+}

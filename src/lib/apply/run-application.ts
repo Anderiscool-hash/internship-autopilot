@@ -22,6 +22,7 @@ import { senderDomainFor } from "../email/detect-field";
 import { conceptOf } from "../answers/concepts";
 import { applicationUrlFor } from "./application-url";
 import { worthStoring } from "./ask-plan";
+import { looksLikeFieldId } from "../answers/ambiguous-labels";
 import { runShadowApply, type FilledHandle, type ShadowRunResult } from "./shadow";
 import type { AnswerEntry } from "../answers/match";
 
@@ -188,7 +189,15 @@ export async function runApplication(
       // this particular posting, which would be wrong on the next form rather
       // than merely unhelpful.
       if (!worthStoring(question, job.company.name)) {
-        log(`  (not saved: "${question.slice(0, 50)}" is specific to this application)`);
+        // Two different reasons to refuse, and saying the wrong one sends the
+        // reader looking for a problem that is not there: a question can be
+        // specific to this application, or the form may never have given the
+        // box a readable label in the first place.
+        log(
+          looksLikeFieldId(question)
+            ? `  (not saved: the form gave "${question.slice(0, 50)}" no readable label)`
+            : `  (not saved: "${question.slice(0, 50)}" is specific to this application)`,
+        );
         return;
       }
 
