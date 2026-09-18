@@ -465,6 +465,18 @@ model AnswerBankEntry {
   candidateId String
   candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
 
+  /// Which part of the form asked this question — the fieldset legend, card
+  /// heading, or step title the field sat under ("Education", "Employment",
+  /// "Work Experience #2"). Null when the form offered no grouping, or for
+  /// rows saved before this column existed.
+  ///
+  /// This exists because `question` alone is not a safe key. Real ATS forms
+  /// reuse a generic label like "Start date month" in several sections, and
+  /// matching on the text alone once overwrote a real answer with another
+  /// section's — see docs/findings/answer-bank-label-collisions.md. Recording
+  /// where the question was asked is what lets the matcher refuse to reuse an
+  /// answer across sections.
+  section  String?
   question String
   answer   String
 
