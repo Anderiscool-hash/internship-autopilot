@@ -13,6 +13,7 @@ import type { ApplicationWithJob } from "@/lib/applications/store";
 import { formatEnum } from "../jobs/format";
 import { notesAction, outcomeAction, transitionAction, untrackAction } from "./actions";
 import { ReviewPanel, type ReviewGate } from "./review-panel";
+import { draftMessageAction } from "../contacts/actions";
 
 /**
  * The moves worth putting on a card, in the order a person would want them.
@@ -55,6 +56,32 @@ export function ApplicationCard({
         {application.job.company.name}
         {application.job.location ? ` · ${application.job.location}` : ""}
       </p>
+
+      <section className="card-form" aria-label={`Contacts at ${application.job.company.name}`}>
+        <strong>People at this company</strong>
+        {application.job.company.contacts.length > 0 ? (
+          <ul className="note">
+            {application.job.company.contacts.slice(0, 5).map((contact) => {
+              const email = contact.emails.find((item) => item.status !== "BOUNCED");
+              return (
+                <li key={contact.id}>
+                  <span>{contact.firstName} {contact.lastName}</span>
+                  {contact.title ? ` - ${contact.title}` : ""}
+                  {email ? <> &middot; <code>{email.address}</code></> : null}
+                  <form action={draftMessageAction} className="inline-form">
+                    <input type="hidden" name="id" value={contact.id} />
+                    <input type="hidden" name="applicationId" value={application.id} />
+                    <button type="submit" className="small-button" disabled={!email}>Draft email</button>
+                  </form>
+                </li>
+              );
+            })}
+          </ul>
+        ) : <p className="note">No researched contacts yet.</p>}
+        <a className="note" href={`/contacts?company=${application.job.company.id}`}>
+          {application.job.company.contacts.length ? "View all contacts" : "Add or view contacts"}
+        </a>
+      </section>
 
       <p className="card-status">
         <span className="badge">{formatEnum(application.status)}</span>

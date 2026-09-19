@@ -56,6 +56,8 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
   const params = await searchParams;
   const saved = one(params, "saved");
   const error = one(params, "error");
+  const query = (one(params, "q") ?? "").trim().toLowerCase();
+  const companyFilter = one(params, "company") ?? "";
   const now = new Date();
 
   const applications = await db.application.findMany({
@@ -64,7 +66,7 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
       company: { select: { name: true } } } } },
   });
 
-  const contacts = await db.contact.findMany({
+  const allContacts = await db.contact.findMany({
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     include: {
       company: { select: { name: true } },
@@ -75,6 +77,21 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
             application: { select: { job: { select: { title: true } } } } },
       },
     },
+  });
+
+  const companies = await db.company.findMany({
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, domain: true },
+  });
+  const selectedCompany = companies.find((company) => company.id === companyFilter);
+  const contacts = allContacts.filter((contact) => {
+    const matchesCompany = !companyFilter || contact.companyId === companyFilter;
+    const haystack = [
+      contact.firstName, contact.lastName, contact.title ?? "",
+      contact.company?.name ?? "", contact.domain,
+      ...contact.emails.map((email) => email.address),
+    ].join(" ").toLowerCase();
+    return matchesCompany && (!query || haystack.includes(query));
   });
 
   // "Needs you" first, the same shape /applications uses: an undrafted
@@ -111,17 +128,35 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
         {replies > 0 ? `, ${replies} repl${replies === 1 ? "y" : "ies"} in` : ""}.
       </p>
 
+      <form method="get" action="/contacts" className="filters">
+        <label className="filter">
+          <span>Search contacts</span>
+          <input type="search" name="q" defaultValue={one(params, "q") ?? ""} placeholder="Name, title, company, or email" />
+        </label>
+        <label className="filter">
+          <span>Company</span>
+          <select name="company" defaultValue={companyFilter}>
+            <option value="">All companies</option>
+            {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
+          </select>
+        </label>
+        <div className="filter-actions">
+          <button type="submit">Filter</button>
+          <a href="/contacts">Clear</a>
+        </div>
+      </form>
+      <p className="note">Showing {contacts.length} of {allContacts.length} contacts.</p>
+
       {saved ? <div className="notice notice-ok">{saved}</div> : null}
       {error ? <div className="notice notice-error">{error}</div> : null}
 
       <div className="notice">
         <strong>This app never sends mail.</strong> It writes a draft into your own
         Drafts folder, or shows it here for you to copy. You read it and send it
-        yourself. Nothing leaves this machine without you pressing send in your own
-        mail client.
+        yourself. No email is delivered to the contact until you send it from your mail client.
       </div>
 
-      <details className="filters-panel" open={contacts.length === 0}>
+      <details className="filters-panel" open={allContacts.length === 0}>
         <summary>Add a contact</summary>
         <form className="filters" action={addContactAction}>
           <label className="filter">
@@ -138,7 +173,7 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
           </label>
           <label className="filter">
             <span>Mail domain</span>
-            <input type="text" name="domain" placeholder="acme.com" required />
+            <input type="text" name="domain" placeholder="acme.com" defaultValue={selectedCompany?.domain ?? ""} required />
           </label>
           <label className="filter">
             <span>LinkedIn URL</span>
@@ -156,7 +191,9 @@ export default async function ContactsPage({ searchParams }: ContactsPageProps) 
         </p>
       </details>
 
-      {contacts.length === 0 ? (
+      {allContacts.length > 0 && contacts.length === 0 ? (
+        <p className="note">No contacts match these filters. <a href="/contacts">Clear filters</a>.</p>
+      ) : allContacts.length === 0 ? (
         <p className="note">
           Nobody yet. Add a recruiter or a hiring manager above, then run discovery to
           work out their address.

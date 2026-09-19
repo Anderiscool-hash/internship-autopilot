@@ -43,28 +43,64 @@ export default async function CompaniesPage({ searchParams }: CompaniesPageProps
   const params = await searchParams;
   const saved = one(params, "saved");
   const error = one(params, "error");
+  const query = (one(params, "q") ?? "").trim().toLowerCase();
+  const activeFilter = one(params, "active") ?? "";
+  const platformFilter = one(params, "platform") ?? "";
   const now = new Date();
 
-  const companies = await db.company.findMany({
+  const allCompanies = await db.company.findMany({
     orderBy: [{ active: "desc" }, { name: "asc" }],
-    include: { _count: { select: { jobs: true } } },
+    include: { _count: { select: { jobs: true, contacts: true } } },
   });
 
-  const scanning = companies.filter((company) => company.active).length;
-  const failing = companies.filter((company) => company.failureCount > 0).length;
+  const companies = allCompanies.filter((company) =>
+    (!query || [company.name, company.atsIdentifier ?? ""].join(" ").toLowerCase().includes(query)) &&
+    (!activeFilter || (activeFilter === "active" ? company.active : !company.active)) &&
+    (!platformFilter || company.atsType === platformFilter),
+  );
+
+  const scanning = allCompanies.filter((company) => company.active).length;
+  const failing = allCompanies.filter((company) => company.failureCount > 0).length;
 
   return (
     <main className="page page-wide">
       <h1>Companies</h1>
       <p className="lede">
-        The boards the scanner watches. {scanning} of {companies.length} are being
+        The boards the scanner watches. {scanning} of {allCompanies.length} are being
         scanned{failing > 0 ? `, ${failing} currently failing` : ""}.
       </p>
+
+      <form method="get" action="/companies" className="filters">
+        <label className="filter">
+          <span>Search companies</span>
+          <input type="search" name="q" defaultValue={one(params, "q") ?? ""} placeholder="Name or board identifier" />
+        </label>
+        <label className="filter">
+          <span>State</span>
+          <select name="active" defaultValue={activeFilter}>
+            <option value="">All states</option>
+            <option value="active">Scanning</option>
+            <option value="paused">Paused</option>
+          </select>
+        </label>
+        <label className="filter">
+          <span>ATS</span>
+          <select name="platform" defaultValue={platformFilter}>
+            <option value="">All platforms</option>
+            {Object.values(AtsType).map((ats) => <option key={ats} value={ats}>{formatEnum(ats)}</option>)}
+          </select>
+        </label>
+        <div className="filter-actions">
+          <button type="submit">Filter</button>
+          <a href="/companies">Clear</a>
+        </div>
+      </form>
+      <p className="note">Showing {companies.length} of {allCompanies.length} companies.</p>
 
       {saved ? <div className="notice notice-ok">{saved}</div> : null}
       {error ? <div className="notice notice-error">{error}</div> : null}
 
-      <details className="filters-panel" open={companies.length === 0}>
+      <details className="filters-panel" open={allCompanies.length === 0}>
         <summary>Add a company</summary>
         <form className="filters" action={addCompanyAction}>
           <label className="filter">
@@ -101,6 +137,10 @@ export default async function CompaniesPage({ searchParams }: CompaniesPageProps
         </p>
       </details>
 
+      {allCompanies.length > 0 && companies.length === 0 ? (
+        <div className="notice">No companies match these filters. <a href="/companies">Clear filters</a>.</div>
+      ) : null}
+
       <div className="table-wrap">
         {/* Not table.jobs: that class is fixed-layout tuned for the jobs
             table's own seven columns via .col-role etc. Reused here it left
@@ -115,6 +155,7 @@ export default async function CompaniesPage({ searchParams }: CompaniesPageProps
               <th scope="col">ATS</th>
               <th scope="col">Board</th>
               <th scope="col">Jobs</th>
+              <th scope="col">Contacts</th>
               <th scope="col">Every</th>
               <th scope="col">Priority</th>
               <th scope="col">Last scan</th>
@@ -131,6 +172,7 @@ export default async function CompaniesPage({ searchParams }: CompaniesPageProps
                   <code>{company.atsIdentifier ?? "—"}</code>
                 </td>
                 <td className="tabular">{company._count.jobs.toLocaleString()}</td>
+                <td><a href={`/contacts?company=${company.id}`}>{company._count.contacts} contacts</a></td>
                 <td className="tabular">{company.pollInterval}m</td>
                 <td>
                   {/* Inline so changing a priority is one action, not a trip

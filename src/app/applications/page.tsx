@@ -57,6 +57,9 @@ export default async function ApplicationsPage({ searchParams }: TrackerPageProp
   const params = await searchParams;
   const saved = one(params, "saved");
   const error = one(params, "error");
+  const query = (one(params, "q") ?? "").trim().toLowerCase();
+  const statusFilter = one(params, "status") ?? "";
+  const companyFilter = one(params, "company") ?? "";
 
   const profile = await getProfile(db);
   if (!profile) {
@@ -71,7 +74,26 @@ export default async function ApplicationsPage({ searchParams }: TrackerPageProp
     );
   }
 
-  const applications = await listApplications(db, profile.id);
+  const allApplications = await listApplications(db, profile.id);
+  const companies = [...new Map(allApplications.map((application) => [
+    application.job.company.id,
+    application.job.company.name,
+  ])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  const applications = allApplications.filter((application) => {
+    const matchesStatus = !statusFilter || application.status === statusFilter;
+    const matchesCompany = !companyFilter || application.job.company.id === companyFilter;
+    const haystack = [
+      application.job.title,
+      application.job.company.name,
+      ...application.job.company.contacts.flatMap((contact) => [
+        contact.firstName,
+        contact.lastName,
+        contact.title ?? "",
+        ...contact.emails.map((email) => email.address),
+      ]),
+    ].join(" ").toLowerCase();
+    return matchesStatus && matchesCompany && (!query || haystack.includes(query));
+  });
   const byColumn = new Map<string, ApplicationWithJob[]>();
   for (const application of applications) {
     const key = columnFor(application.status);
@@ -112,13 +134,39 @@ export default async function ApplicationsPage({ searchParams }: TrackerPageProp
     <main className="page page-wide">
       <h1>Applications</h1>
       <p className="lede">
-        {applications.length === 0
+        {allApplications.length === 0
           ? "Keep every opportunity and next step in one place."
           : `${applications.length} tracked · ${countApplied(applications)} applied · ${countOutcome(applications, ApplicationOutcome.INTERVIEW)} interviews · ${countOutcome(applications, ApplicationOutcome.OFFER)} offers`}
       </p>
 
+      <form method="get" action="/applications" className="filters">
+        <label className="filter">
+          <span>Search applications</span>
+          <input name="q" type="search" defaultValue={one(params, "q") ?? ""} placeholder="Role, company, or contact" />
+        </label>
+        <label className="filter">
+          <span>Status</span>
+          <select name="status" defaultValue={statusFilter}>
+            <option value="">All statuses</option>
+            {Object.values(ApplicationStatus).map((status) => (
+              <option key={status} value={status}>{formatEnum(status)}</option>
+            ))}
+          </select>
+        </label>
+        <label className="filter">
+          <span>Company</span>
+          <select name="company" defaultValue={companyFilter}>
+            <option value="">All companies</option>
+            {companies.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+        </label>
+        <div className="filter-actions">
+          <button type="submit">Filter</button>
+          <a href="/applications">Clear</a>
+        </div>
+      </form>
       <p className="note">
-        <a href="/applications/export">Download CSV</a>
+        <a href="/applications/export">Download CSV</a> &middot; Showing {applications.length} of {allApplications.length}
       </p>
 
       {saved && SAVED_MESSAGES[saved] ? (
@@ -128,7 +176,9 @@ export default async function ApplicationsPage({ searchParams }: TrackerPageProp
         <div className="notice notice-error">{ERROR_MESSAGES[error] ?? error}</div>
       ) : null}
 
-      {applications.length === 0 ? (
+      {allApplications.length > 0 && applications.length === 0 ? (
+        <div className="notice">No applications match these filters. <a href="/applications">Clear filters</a>.</div>
+      ) : applications.length === 0 ? (
         <section className="tracker-empty" aria-labelledby="tracker-empty-title">
           <Icon name="applications" />
           <h2 id="tracker-empty-title">Room for your next opportunity.</h2>

@@ -26,7 +26,7 @@ export type ApplicationWithJob = Application & {
     location: string | null;
     canonicalUrl: string;
     atsType: AtsType;
-    company: { name: string };
+    company: { name: string; id: string; contacts: { id: string; firstName: string; lastName: string; title: string | null; emails: { id: string; address: string; status: string }[] }[] };
   };
 };
 
@@ -46,7 +46,7 @@ export async function listApplications(
           location: true,
           canonicalUrl: true,
           atsType: true,
-          company: { select: { name: true } },
+          company: { select: { id: true, name: true, contacts: { orderBy: { lastName: "asc" }, select: { id: true, firstName: true, lastName: true, title: true, emails: { orderBy: [{ confidence: "desc" }, { address: "asc" }], select: { id: true, address: true, status: true } } } } } },
         },
       },
     },
