@@ -23,6 +23,9 @@ export const ENV_PATH = resolve(".env");
 /** The variables this screen owns. Nothing else in .env is touched. */
 export type MailboxVar = "IMAP_HOST" | "IMAP_PORT" | "IMAP_USER" | "IMAP_PASSWORD" | "IMAP_TLS";
 
+/** Variables that settings screens may write through the shared env writer. */
+export type WritableEnvVar = MailboxVar | "HUNTER_API_KEY";
+
 /**
  * Set each given variable, leaving the rest of the file exactly as it was.
  *
@@ -30,7 +33,7 @@ export type MailboxVar = "IMAP_HOST" | "IMAP_PORT" | "IMAP_USER" | "IMAP_PASSWOR
  * above it keeps describing the right thing. A new key is appended.
  */
 export function writeEnvVars(
-  values: Partial<Record<MailboxVar, string>>,
+  values: Partial<Record<WritableEnvVar, string>>,
   /** The file to edit. A parameter so this is testable without a real .env. */
   path: string = ENV_PATH,
 ): void {

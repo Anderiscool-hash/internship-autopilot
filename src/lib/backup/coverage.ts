@@ -26,6 +26,9 @@
 export const BACKUP_TABLES: Readonly<Record<string, string>> = {
   // Companies own jobs; candidates own nearly everything else.
   companies: "Company",
+  contacts: "Contact",
+  contactEmails: "ContactEmail",
+  emailPatterns: "EmailPattern",
   jobs: "Job",
   candidates: "Candidate",
   candidateDocuments: "CandidateDocument",
@@ -36,6 +39,7 @@ export const BACKUP_TABLES: Readonly<Record<string, string>> = {
   candidatePreferences: "CandidatePreferences",
   answerBankEntries: "AnswerBankEntry",
   applications: "Application",
+  outreachMessages: "OutreachMessage",
   // Shadow runs reference a job and a candidate; submission attempts also
   // reference the application they were an attempt at.
   shadowRuns: "ShadowRun",

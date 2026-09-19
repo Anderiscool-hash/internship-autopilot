@@ -49,6 +49,21 @@ describe("buildShapes against the real schema", () => {
     );
   });
 
+  it("imports contact rows before their addresses and outreach thread", () => {
+    const order = SHAPES.map((item) => item.table);
+    expect(order.indexOf("companies")).toBeLessThan(order.indexOf("contacts"));
+    expect(order.indexOf("contacts")).toBeLessThan(order.indexOf("contactEmails"));
+    expect(order.indexOf("contactEmails")).toBeLessThan(order.indexOf("outreachMessages"));
+    expect(order.indexOf("applications")).toBeLessThan(order.indexOf("outreachMessages"));
+  });
+
+  it("preserves outreach dates and the address uniqueness rule", () => {
+    expect(shape("outreachMessages").dateFields).toEqual(
+      expect.arrayContaining(["draftedAt", "sentAt", "bouncedAt", "repliedAt", "followUpAt"]),
+    );
+    expect(shape("contactEmails").uniqueKeys).toContainEqual(["contactId", "address"]);
+  });
+
   it("gives every table an id column to match rows by", () => {
     // Matching by id is the entire basis of a re-runnable import.
     for (const item of SHAPES) {

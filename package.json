@@ -39,6 +39,8 @@
     "shadow": "tsx scripts/shadow-apply.ts",
     "shadow:verdict": "tsx scripts/shadow-verdict.ts",
     "mailbox:check": "tsx scripts/check-mailbox.ts",
+    "drafts:check": "tsx scripts/check-drafts.ts",
+    "outreach:watch": "tsx scripts/watch-outreach.ts",
     "daemon": "tsx scripts/apply-daemon.ts"
   },
   "prisma": {

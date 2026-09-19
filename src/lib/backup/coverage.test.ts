@@ -82,6 +82,13 @@ describe("the declaration against the real schema", () => {
     expect(exported).toContain("SubmissionAttempt");
   });
 
+  it("backs up durable contact discovery and outreach records", () => {
+    const exported = Object.values(BACKUP_TABLES);
+    for (const model of ["Contact", "ContactEmail", "EmailPattern", "OutreachMessage"]) {
+      expect(exported).toContain(model);
+    }
+  });
+
   it("leaves ResumeImport out without that counting as a gap", () => {
     // The one omission that is supposed to be there. It has to be invisible
     // to the guard for the right reason — a written-down exclusion — and not

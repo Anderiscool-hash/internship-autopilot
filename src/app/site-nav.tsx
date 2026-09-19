@@ -30,6 +30,7 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
       { href: "/profile", label: "Your profile", icon: "profile" },
       { href: "/answers", label: "Answer bank", icon: "answers" },
       { href: "/companies", label: "Company boards", icon: "companies" },
+      { href: "/contacts", label: "People", icon: "contacts" },
     ],
   },
   {

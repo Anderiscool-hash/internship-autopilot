@@ -557,6 +557,7 @@ model Company {
   updatedAt DateTime @updatedAt
 
   jobs Job[]
+  contacts Contact[]
 
   // Scan-queue lookup: "give me active companies, oldest-scanned first."
   @@index([active, lastScan])
@@ -725,9 +726,8 @@ model Application {
   /// answers). Stored as JSON since the question set differs per posting.
   submittedAnswers Json?
 
-  /// spec §24 "Recruiter". JUDGMENT CALL: a plain string for now (e.g. a
-  /// name/email) rather than a full Contact model, since the recruiter
-  /// finder/CRM (spec §26-27) is a later phase.
+  /// Recruiter field superseded by the Contact and OutreachMessage records below.
+  /// Retained for previously hand-typed data; new outreach uses the relation.
   recruiterContact String?
 
   /// spec §24 "Interview dates" — every interview date scheduled for this
@@ -756,6 +756,7 @@ model Application {
   nextAttemptAt DateTime?
 
   submissionAttempts SubmissionAttempt[]
+  outreach OutreachMessage[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -988,4 +989,192 @@ model EventLog {
 
   // Look up "everything that happened to this Job/Application," in order.
   @@index([entityType, entityId])
+}
+
+
+// ----------------------------------------------------------------------------
+// CONTACTS + OUTREACH (spec §26-27)
+// ----------------------------------------------------------------------------
+
+/// Where a contact came from. An enum rather than a boolean because a licensed
+/// people-data API may be added later, and because "how did we learn about this
+/// person" is the first question asked when an address turns out to be wrong.
+enum ContactSource {
+  MANUAL
+  HUNTER
+  IMPORTED
+}
+
+/// How much is known about one candidate address. There is deliberately no
+/// GRAVATAR_MISS: a missing avatar is absence of evidence, not evidence of
+/// absence, and giving it a state would invite treating it as one.
+enum ContactEmailStatus {
+  GUESSED
+  GRAVATAR_HIT
+  API_VERIFIED
+  BOUNCED
+  CONFIRMED
+}
+
+enum EmailPatternSource {
+  INFERRED
+  HUNTER
+  MANUAL
+}
+
+/// Lifecycle of one outreach message. There is no SENDING state because this
+/// app never sends: SENT is set by the person telling us he sent it.
+enum OutreachStatus {
+  DRAFT
+  SENT
+  BOUNCED
+  REPLIED
+}
+
+/// A person at a company worth introducing yourself to (spec §26).
+model Contact {
+  id String @id @default(cuid())
+
+  firstName String
+  lastName  String
+
+  /// Job title as the candidate read it. Free text on purpose — "University
+  /// Recruiter", "Engineering Manager" and "Campus Talent" are the same job at
+  /// three companies, and an enum would force a wrong choice at entry.
+  title String?
+
+  /// Null when the person was found before the employer was tracked as a
+  /// Company, which is normal: outreach runs ahead of the board registry.
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  /// The mail domain to guess against. Held here rather than read from
+  /// Company.domain because Company has NO unique constraint on domain and the
+  /// join may be wrong or absent — see the note below this block.
+  domain String
+
+  /// Recorded for the candidate's reference only. The application never fetches
+  /// it; see section 2.
+  linkedinUrl String?
+
+  source ContactSource @default(MANUAL)
+
+  notes String? @db.Text
+
+  emails   ContactEmail[]
+  outreach OutreachMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([domain])
+}
+
+/// One candidate address for a contact, with what is known about it. Several
+/// rows per contact is the normal state: the pipeline generates ten and narrows
+/// them as evidence arrives.
+model ContactEmail {
+  id        String  @id @default(cuid())
+  contactId String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  address String
+
+  /// Which pattern generated it, so a confirmation can teach EmailPattern. Null
+  /// when the address came from Hunter or was typed in directly and no pattern
+  /// explains it unambiguously.
+  pattern String?
+
+  /// 0-100 from scoreAddress(). Stored rather than computed on read so the
+  /// ordering the person saw is the ordering that was recorded.
+  confidence Int @default(0)
+
+  status ContactEmailStatus @default(GUESSED)
+
+  /// When a verification signal was last gathered. Null means never checked,
+  /// which is distinct from checked-and-found-nothing.
+  checkedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  outreach OutreachMessage[]
+
+  // One row per address per contact; the pipeline re-runs and must not
+  // duplicate what it already knows.
+  @@unique([contactId, address])
+  @@index([status])
+}
+
+/// The learned address pattern for one mail domain. This is the table that
+/// makes the free path work: the first confirmed address at a domain turns
+/// every later contact there from ten guesses into one.
+model EmailPattern {
+  id String @id @default(cuid())
+
+  /// Unique here, unlike Company.domain, because this table's entire purpose is
+  /// to answer "what is the pattern at this domain" with exactly one row.
+  domain String @unique
+
+  /// A PatternId string, e.g. "first.last". Kept as a String rather than an
+  /// enum so adding a pattern to the permuter needs no migration.
+  pattern String
+
+  source EmailPatternSource @default(INFERRED)
+
+  /// 0-100. Rises with confirmedCount; a Hunter-sourced pattern starts high.
+  confidence Int @default(0)
+
+  /// How many unambiguous confirmations back this pattern. Ambiguous evidence
+  /// does not increment it — see inferPattern().
+  confirmedCount Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// One outreach message and its fate (spec §27's tracking fields).
+model OutreachMessage {
+  id String @id @default(cuid())
+
+  contactId String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  /// Which address it was written to. Restrict rather than Cascade: the message
+  /// is the record that this address was tried, and deleting the address must
+  /// not erase the evidence.
+  emailId String
+  email   ContactEmail @relation(fields: [emailId], references: [id], onDelete: Restrict)
+
+  /// spec §27 "Application association". Optional because introducing yourself
+  /// before applying is a legitimate and common order.
+  applicationId String?
+  application   Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+
+  subject String
+  body    String @db.Text
+
+  status OutreachStatus @default(DRAFT)
+
+  /// Where the draft ended up, so the person can go find it. Null when the copy
+  /// fallback was used instead of an IMAP append.
+  draftFolder String?
+
+  draftedAt DateTime  @default(now())
+  /// Set when the person says he sent it. The bounce watcher reads only mail
+  /// after this instant, so an unmarked message is never correlated.
+  sentAt    DateTime?
+  bouncedAt DateTime?
+  repliedAt DateTime?
+
+  /// spec §27 "Follow-up date". A date the UI surfaces; nothing acts on it.
+  followUpAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([contactId])
+  @@index([followUpAt])
 }

@@ -31,6 +31,9 @@ async function collect() {
     exportedAt: new Date().toISOString(),
     // Parents first: companies before jobs, candidates before their children.
     companies: await db.company.findMany(),
+    contacts: await db.contact.findMany(),
+    contactEmails: await db.contactEmail.findMany(),
+    emailPatterns: await db.emailPattern.findMany(),
     jobs: await db.job.findMany(),
     candidates: await db.candidate.findMany(),
     // The document registry, including which file is isDefault per kind. The
@@ -43,6 +46,7 @@ async function collect() {
     candidatePreferences: await db.candidatePreferences.findMany(),
     answerBankEntries: await db.answerBankEntry.findMany(),
     applications: await db.application.findMany(),
+    outreachMessages: await db.outreachMessage.findMany(),
     // Shadow runs carry the human verdicts the trust ladder reads to decide
     // whether an adapter may submit at all. Losing them resets every adapter
     // to untested, so they travel with everything else.
