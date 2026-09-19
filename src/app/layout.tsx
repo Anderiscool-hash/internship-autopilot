@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import {
   configuredPassword,
   isLocalHost,
-  SESSION_COOKIE,
+  readSessionToken,
   verifySessionToken,
 } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -31,10 +31,18 @@ export default async function RootLayout({
   // login, plus a Sign out button for a session that does not exist yet.
   const remote = !isLocalHost((await headers()).get("host"));
   const password = configuredPassword();
+  const cookieStore = await cookies();
   const signedIn =
     !remote ||
     (password !== null &&
-      (await verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value, password)));
+      // Read through readSessionToken, not a fixed name: over https the
+      // cookie is "__Host-ia_session" and over plain http it is
+      // "ia_session". Reading one name would leave a signed-in owner with no
+      // nav on the deployed site and no clue why.
+      (await verifySessionToken(
+        readSessionToken((name) => cookieStore.get(name)?.value),
+        password,
+      )));
 
   // The only database work the root layout does, and it is wrapped because of
   // where it sits: this layout renders on EVERY page, so an unhandled throw

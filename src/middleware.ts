@@ -26,7 +26,7 @@ import {
   decideAccess,
   isPublicPath,
   localRequestsTrusted,
-  SESSION_COOKIE,
+  readSessionToken,
 } from "@/lib/auth/session";
 
 export async function middleware(request: NextRequest) {
@@ -38,7 +38,10 @@ export async function middleware(request: NextRequest) {
 
   const decision = await decideAccess({
     trustLocal: localRequestsTrusted(),
-    token: request.cookies.get(SESSION_COOKIE)?.value,
+    // Both cookie names — the session is stored under `__Host-ia_session` over
+    // https and plain `ia_session` over http on localhost, and the hardened
+    // one wins if somehow both are present. See `readSessionToken`.
+    token: readSessionToken((name) => request.cookies.get(name)?.value),
     password: configuredPassword(),
   });
 

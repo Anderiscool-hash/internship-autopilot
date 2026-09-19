@@ -35,6 +35,19 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         <div className="notice notice-error">That password is not right.</div>
       ) : null}
 
+      {error === "rate-limited" ? (
+        <div className="notice notice-error">
+          {/*
+            The wait arrives in the URL, so it is clamped rather than printed:
+            anything reachable from a query parameter is text an attacker
+            chooses, and this page is the one place a stranger can reach.
+          */}
+          Too many wrong passwords. Wait about{" "}
+          {Math.min(60, Math.max(1, Number(one(params, "wait")) || 15))} minutes
+          and try again.
+        </div>
+      ) : null}
+
       {!configured ? (
         <div className="notice notice-error">
           No password is set, so there is nothing to sign in with. Set{" "}

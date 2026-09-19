@@ -21,7 +21,7 @@ import {
   configuredPassword,
   decideAccess,
   localRequestsTrusted,
-  SESSION_COOKIE,
+  readSessionToken,
   type AccessDecision,
 } from "./session";
 
@@ -82,7 +82,9 @@ export async function requireAccess(): Promise<void> {
     await decideAccess({
       // The environment, never the request. See `localRequestsTrusted`.
       trustLocal: localRequestsTrusted(),
-      token: store.get(SESSION_COOKIE)?.value,
+      // Checks both cookie names: hardened (`__Host-`) over https, plain over
+      // http on localhost. See `readSessionToken`.
+      token: readSessionToken((name) => store.get(name)?.value),
       password: configuredPassword(),
     }),
   );
