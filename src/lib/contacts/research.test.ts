@@ -1,0 +1,2 @@
+import { describe, expect, it } from "vitest"; import { extractResearchLeads } from "./research";
+describe("extractResearchLeads",()=>{it("extracts a named recruiter",()=>{expect(extractResearchLeads("Contact Jane Okafor, University Recruiter, at jane.okafor@acme.com.")).toEqual([{firstName:"Jane",lastName:"Okafor",email:"jane.okafor@acme.com",title:"University Recruiter"}]);});it("skips generic inboxes",()=>{expect(extractResearchLeads("Send applications to careers@acme.com or recruiting2@acme.com.")).toEqual([]);});});

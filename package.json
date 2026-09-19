@@ -28,11 +28,11 @@
     "//scan": "Run the continuous scanner (spec \u00a75). Add --once for a single cycle.",
     "scan": "tsx scripts/scan.ts",
     "eligibility:report": "tsx scripts/eligibility-report.ts",
-  "//eligibility:verdicts": "What the engine decides in aggregate — run before and after any extraction change",
+  "//eligibility:verdicts": "What the engine decides in aggregate â€” run before and after any extraction change",
   "eligibility:verdicts": "tsx scripts/eligibility-verdicts.ts",
     "extract:backfill": "tsx scripts/extract-backfill.ts",
     "preflight": "tsx scripts/preflight.ts",
-    "//spellcheck": "Report probable typos in the candidate's stored profile — read-only, never edits the database",
+    "//spellcheck": "Report probable typos in the candidate's stored profile â€” read-only, never edits the database",
     "spellcheck": "tsx scripts/spellcheck.ts",
     "data:export": "tsx scripts/export-data.ts",
     "data:import": "tsx scripts/import-data.ts",
@@ -41,6 +41,7 @@
     "mailbox:check": "tsx scripts/check-mailbox.ts",
     "drafts:check": "tsx scripts/check-drafts.ts",
     "outreach:watch": "tsx scripts/watch-outreach.ts",
+    "outreach:research": "tsx scripts/research-contacts.ts",
     "daemon": "tsx scripts/apply-daemon.ts"
   },
   "prisma": {
