@@ -1,0 +1,35 @@
+[Unit]
+Description=Internship Autopilot — job board scanner
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=autopilot
+WorkingDirectory=/opt/internship-autopilot
+EnvironmentFile=/etc/autopilot.env
+Environment=NODE_ENV=production
+
+# The scanner schedules itself from each company row's own next-due time, so
+# killing it and starting it tomorrow resumes exactly where it left off — no
+# missed work, no duplicate scans. That is why a plain restart is safe.
+ExecStart=/usr/bin/npm run scan
+
+# SIGINT rather than SIGTERM: the loop traps it and finishes the cycle it is
+# in before exiting, instead of dying mid-board.
+KillSignal=SIGINT
+TimeoutStopSec=120
+
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/autopilot
+
+[Install]
+WantedBy=multi-user.target

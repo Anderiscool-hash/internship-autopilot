@@ -1,0 +1,37 @@
+[Unit]
+Description=Internship Autopilot — apply daemon (fills application forms)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=autopilot
+WorkingDirectory=/opt/internship-autopilot
+EnvironmentFile=/etc/autopilot.env
+Environment=NODE_ENV=production
+
+# Drives a real browser and types a real person's name, address and phone
+# number into employers' forms. It listens on 127.0.0.1 only and requires a
+# bearer token written to a gitignored handshake file at startup — do NOT put
+# this behind a reverse proxy or bind it to a LAN address.
+ExecStart=/usr/bin/npm run daemon
+
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Chromium needs a writable temp area and somewhere for the saved browser
+# session (storage/browser-session.json — logins survive restarts through it).
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/autopilot /opt/internship-autopilot/storage
+
+[Install]
+WantedBy=multi-user.target
+
+# REMEMBER: this process loads the fill logic at startup and never reloads it.
+# After deploying any change to how forms are filled, restart this unit or it
+# keeps applying the old rules with no sign that anything is stale.

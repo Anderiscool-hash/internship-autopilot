@@ -4,13 +4,33 @@ Written for putting this on a server you control, reachable at a domain.
 
 ## What has to run
 
-Three things, not one:
+Four things, not one:
 
 | Piece | What it is | Can it be serverless? |
 | --- | --- | --- |
 | The web app | Next.js, this repo | Yes |
 | Postgres | The database | Managed service or a container |
 | The scanner | `npm run scan` — a long-running loop | **No** |
+| The apply daemon | `npm run daemon` — fills forms | **No**, and only when you want to apply |
+
+Ready-made service files for all three processes live in [`deploy/`](../deploy/)
+— systemd units for Linux, a PM2 config for anywhere else including Windows.
+
+The apply daemon is the newest of the four and the easiest to forget: the
+dashboard's "Fill this application for me" button talks to it on
+`127.0.0.1:4319`, so with the daemon down that button has nothing to reach and
+nothing explains why. It is optional in the sense that discovery, matching and
+the tracker all work without it — you simply cannot fill an application.
+
+Two things about it that are easy to get wrong:
+
+- **It listens on loopback only, with a bearer token generated at startup.** It
+  drives a real browser and types your name, address and phone number into
+  employers' forms. Do not put it behind a reverse proxy and do not bind it to
+  a LAN address.
+- **It loads the form-filling logic at startup and never reloads it.** A daemon
+  left running across a deploy keeps applying the OLD rules, silently. Restart
+  it as part of every deploy.
 
 The scanner is the part that catches people out. It polls job boards on a
 schedule and its whole design assumes a process that stays alive (spec §5).

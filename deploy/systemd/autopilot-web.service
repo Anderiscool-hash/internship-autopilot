@@ -1,0 +1,38 @@
+[Unit]
+Description=Internship Autopilot — web app
+# The app cannot serve a page without the database, so wait for it. This only
+# orders startup; it does not stop the unit from running if Postgres is on
+# another host, in which case Restart= below is what recovers.
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=autopilot
+WorkingDirectory=/opt/internship-autopilot
+
+# Secrets live here, root-owned and 600, rather than in this world-readable
+# unit file. See .env.example for the variable names.
+# TRUST_LOCAL_REQUESTS must NOT appear in it — set APP_PASSWORD instead.
+EnvironmentFile=/etc/autopilot.env
+Environment=NODE_ENV=production
+
+# `npm run build` is a deploy step, not a service step: building here would
+# rebuild on every restart and leave the app down while it worked.
+ExecStart=/usr/bin/npm run start
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# The app reads and writes exactly two places outside the repo: the document
+# store and the shadow-run screenshots. Everything else stays read-only.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/autopilot
+
+[Install]
+WantedBy=multi-user.target
