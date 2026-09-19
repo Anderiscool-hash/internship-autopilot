@@ -32,6 +32,8 @@
   "eligibility:verdicts": "tsx scripts/eligibility-verdicts.ts",
     "extract:backfill": "tsx scripts/extract-backfill.ts",
     "preflight": "tsx scripts/preflight.ts",
+    "//spellcheck": "Report probable typos in the candidate's stored profile — read-only, never edits the database",
+    "spellcheck": "tsx scripts/spellcheck.ts",
     "data:export": "tsx scripts/export-data.ts",
     "data:import": "tsx scripts/import-data.ts",
     "shadow": "tsx scripts/shadow-apply.ts",
