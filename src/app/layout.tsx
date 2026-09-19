@@ -10,6 +10,7 @@ import {
 import { db } from "@/lib/db";
 import { verificationProgress } from "@/lib/shadow/verdicts";
 import { SiteNav } from "./site-nav";
+import { LegalFooter } from "./legal-content";
 import "./globals.css";
 import "./workspace.css";
 
@@ -61,6 +62,7 @@ export default async function RootLayout({
           <SiteNav pendingRuns={pendingRuns} remote={remote} />
         ) : null}
         <div id="main-content">{children}</div>
+        <LegalFooter />
       </body>
     </html>
   );

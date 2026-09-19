@@ -65,6 +65,20 @@ body { font-feature-settings: "ss01"; }
 .workspace-shell { padding-left: var(--sidebar-width); }
 #main-content { min-width: 0; }
 .page { padding-top: 32px; }
+.page-narrow { max-width: 760px; }
+.legal-page { padding-bottom: 54px; }
+.legal-page h1 { margin-top: 8px; font-size: clamp(28px, 4vw, 40px); font-weight: 500; letter-spacing: -.045em; }
+.legal-page .lede { max-width: 64ch; margin-top: 12px; }
+.legal-content { margin-top: 38px; }
+.legal-content h2 { margin: 30px 0 8px; font-size: 16px; font-weight: 600; }
+.legal-content p { max-width: 70ch; color: var(--text-secondary); font-size: 14px; line-height: 1.75; }
+.legal-content a { color: var(--accent); }
+.legal-updated { color: var(--text-tertiary) !important; font-size: 12px !important; }
+.legal-back { margin-top: 42px; font-size: 13px; }
+.legal-footer { display: flex; justify-content: space-between; gap: 20px; max-width: 1440px; margin: 0 auto; padding: 26px 36px 30px; color: var(--text-tertiary); font-size: 11px; }
+.legal-footer nav { display: flex; flex-wrap: wrap; gap: 18px; }
+.legal-footer a { color: var(--text-secondary); text-decoration: none; }
+.legal-footer a:hover { color: var(--accent); text-decoration: underline; }
 .page-wide { padding-inline: 36px; }
 .page > h1 { margin-bottom: 8px; letter-spacing: -0.035em; }
 .lede { max-width: 85ch; line-height: 1.65; }
@@ -321,6 +335,7 @@ table.jobs td a { font-weight: 500; }
   .pipeline-panel { grid-template-columns: minmax(0, 1fr); gap: 16px; }
 }
 @media (max-width: 640px) {
+  .legal-footer { align-items: flex-start; flex-direction: column; padding-inline: 18px; gap: 12px; }
   .workspace-topbar { padding: 12px 16px; flex-wrap: wrap; gap: 8px; }
   .workspace-brand-mark, .workspace-brand-mark svg { width: 28px; height: 28px; }
   .workspace-brand { gap: 8px; }
